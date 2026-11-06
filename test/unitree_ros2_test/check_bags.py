@@ -282,8 +282,9 @@ def validate(path, get_message, deserialize_message, serialize_message, limit):
             decoder = CDR(raw, get_message)
             expected = decoder.message(cls)
             trailing = bytes(raw[decoder.pos:])
-            alignment_padding = (0 < len(trailing) <= 3 and len(raw) % 4 == 0
-                                 and not any(trailing))
+            # XCDR1 alignment bytes are unspecified, including Fast DDS's
+            # final alignment padding in some Humble recordings.
+            alignment_padding = (0 < len(trailing) <= 3 and len(raw) % 4 == 0)
             firmware_padding = (typename == 'unitree_go/msg/SportModeState'
                                 and len(trailing) == 280 and not any(trailing))
             if trailing and not (alignment_padding or firmware_padding):
@@ -296,11 +297,13 @@ def validate(path, get_message, deserialize_message, serialize_message, limit):
             equal(expected, plain(deserialize_message(serialized, cls)))
             ros_padding = serialized[again.pos:]
             if ros_padding and not (len(ros_padding) <= 3
-                                    and len(serialized) % 4 == 0
-                                    and not any(ros_padding)):
+                                    and len(serialized) % 4 == 0):
                 raise AssertionError('ROS serialization emitted unexplained trailer')
             topic['trailing_byte_counts'][str(len(trailing))] = \
                 topic['trailing_byte_counts'].get(str(len(trailing)), 0) + 1
+            if alignment_padding and any(trailing):
+                topic['nonzero_alignment_padding_count'] = \
+                    topic.get('nonzero_alignment_padding_count', 0) + 1
             topic['validated_messages'] += 1
             result['validated_messages'] += 1
             samples.setdefault(typename, message)
@@ -357,7 +360,7 @@ def main():
               'ros_subscriber_types_verified': 0,
               'hardware_interoperability_verified': False,
               'cdr_trailer_policy': {
-                  'alignment': 'up to three zero bytes to a 4-byte boundary',
+                  'alignment': 'up to three unspecified bytes to a 4-byte boundary',
                   'unitree_go/msg/SportModeState':
                       '280 zero bytes observed in firmware telemetry recordings',
                   'other_trailers': 'rejected as unknown schema data'}}

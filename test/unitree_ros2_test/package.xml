@@ -17,6 +17,8 @@
   <test_depend>rmw_cyclonedds_cpp</test_depend>
   <test_depend>cyclonedds</test_depend>
   <test_depend>rosbag2_py</test_depend>
+  <test_depend>ros2bag</test_depend>
+  <test_depend>rosbag2_storage_mcap</test_depend>
   <test_depend>rosbag2_storage_default_plugins</test_depend>
   <test_depend>unitree_ros2_example</test_depend>
   <export><build_type>ament_cmake</build_type></export>

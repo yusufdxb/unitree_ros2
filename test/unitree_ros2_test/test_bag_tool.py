@@ -174,3 +174,45 @@ def test_ros_validation_refuses_non_loopback_configuration(monkeypatch):
         '</Interfaces></General></Domain></CycloneDDS>')
     with pytest.raises(RuntimeError, match='loopback-only'):
         check_bags.validate_ros({}, get_message)
+
+
+def test_mcap_telemetry_roundtrip(tmp_path):
+    import rosbag2_py
+    directory = tmp_path / 'mcap'
+    writer = rosbag2_py.SequentialWriter()
+    writer.open(rosbag2_py.StorageOptions(uri=str(directory), storage_id='mcap'),
+                rosbag2_py.ConverterOptions('', ''))
+    for index, typename in enumerate(TYPES, 1):
+        name = '/telemetry/sample_{}'.format(index)
+        attributes = dict(name=name, type=typename, serialization_format='cdr')
+        try:
+            metadata = rosbag2_py.TopicMetadata(id=index, **attributes)
+        except TypeError:
+            metadata = rosbag2_py.TopicMetadata(**attributes)
+        writer.create_topic(metadata)
+        writer.write(name, serialize_message(telemetry(typename)),
+                     1234567890000000000 + index)
+    del writer
+    path = next(directory.glob('*.mcap'))
+    result, samples = validate(path)
+    assert result['passed'], result['errors']
+    assert result['storage'] == 'mcap'
+    assert result['validated_messages'] == 3
+    assert result['sha256_before'] == result['sha256_after']
+    for typename in TYPES:
+        check_bags.equal(check_bags.plain(telemetry(typename)),
+                         check_bags.plain(samples[typename]))
+
+
+def test_unspecified_final_cdr_alignment_bytes(tmp_path):
+    typename = 'unitree_go/msg/WirelessController'
+    raw = serialize_message(telemetry(typename))
+    # The final uint16 ends at byte 22. Some serializers align the payload
+    # to four bytes without clearing the two padding bytes.
+    raw = raw[:22] + b'\xa5\x5a'
+    path = recording(tmp_path, [(typename, raw)])
+    result, samples = validate(path)
+    assert result['passed'], result['errors']
+    assert result['topics'][0]['nonzero_alignment_padding_count'] == 1
+    check_bags.equal(check_bags.plain(telemetry(typename)),
+                     check_bags.plain(samples[typename]))
