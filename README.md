@@ -2,6 +2,12 @@ Unitree robot ROS2 support
 
 [TOC]
 
+For Ubuntu 24.04 and ROS 2 Jazzy, follow the
+[native Jazzy installation and validation guide](docs/jazzy.md).
+Jazzy uses the distribution's packaged Cyclone DDS and matching RMW; the
+legacy source-DDS instructions below are not required for Jazzy.
+
+
 # Introduction
 Unitree SDK2 implements an easy-to-use robot communication mechanism based on Cyclonedds, which enable developers to achieve robot communication and control (**Supports Unitree Go2, B2, and H1**). See: https://github.com/unitreerobotics/unitree_sdk2
 

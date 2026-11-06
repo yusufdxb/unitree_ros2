@@ -1,0 +1,183 @@
+# Native ROS 2 Jazzy
+
+Ubuntu 24.04 with ROS 2 Jazzy builds the official `unitree_go`, `unitree_hg`
+and `unitree_api` interfaces, examples and regression tests directly. A Jazzy
+application uses `rmw_cyclonedds_cpp` and native DDS topics to communicate with
+Unitree firmware. No Humble installation, bridge or SDK wrapper is required.
+The message definitions and Unitree request/response protocol are unchanged.
+This repository defines messages; it currently defines no ROS services or actions.
+
+## Install and build
+
+Install ROS 2 Jazzy using the [official Ubuntu installation instructions](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html).
+Start a new terminal with no other ROS distribution or custom DDS overlay sourced.
+Then install the development tools and native middleware:
+
+```bash
+sudo apt update
+sudo apt install python3-colcon-common-extensions python3-rosdep \
+  ros-jazzy-rmw-cyclonedds-cpp ros-jazzy-rosidl-generator-dds-idl
+source /opt/ros/jazzy/setup.bash
+
+git clone https://github.com/unitreerobotics/unitree_ros2.git
+cd unitree_ros2
+```
+
+Initialize rosdep once per machine with `sudo rosdep init` if it has not already
+been initialized, then resolve all declared dependencies and build:
+
+```bash
+rosdep update --rosdistro jazzy
+rosdep install --from-paths cyclonedds_ws/src example/src test \
+  --ignore-src --rosdistro jazzy -y
+colcon build --executor sequential --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo
+source install/local_setup.bash
+```
+
+The commands build one workspace at the repository root, including every example
+and the test package. A separate interface workspace under `cyclonedds_ws` remains
+usable; select its install when sourcing the helper scripts.
+
+Jazzy supplies Cyclone DDS 0.10.5 with its matching `rmw_cyclonedds_cpp` binary
+package. Use that matched pair. Firmware using Cyclone DDS 0.10.2 does not require
+replacing Jazzy's system library with 0.10.2. DDS interoperability and local
+library ABI compatibility are different requirements. Do not overlay a different
+Cyclone DDS library beneath the packaged Jazzy RMW implementation, and do not
+source Humble into a Jazzy shell. The `rosidl_generator_dds_idl` dependency emits
+DDS IDL used by the plain DDS regression peer; it does not select the Connext RMW.
+
+## Offline validation
+
+For the repository-root workspace, select its install explicitly:
+
+```bash
+export UNITREE_ROS_WS="$PWD"
+source setup_local.sh jazzy
+colcon test --executor sequential --event-handlers console_direct+ \
+  --return-code-on-test-failure
+colcon test-result --all --verbose
+```
+
+`setup_local.sh` selects Cyclone DDS, loopback networking, unicast discovery and
+domain 173 unless `ROS_DOMAIN_ID` is already set. It does not discover a robot
+interface. The automatic tests use telemetry or private test topics. They do not
+publish motion commands or change a robot control mode.
+
+The tests cover generated interface serialization, ROS publishers/subscribers,
+a plain Cyclone DDS peer without ROS client libraries, API request/response
+correlation, setup scripts and subscriber example startup. Inspect the generated
+JUnit results and colcon logs for the checks actually executed. A passing offline
+suite establishes software behavior under the tested conditions, not firmware or
+hardware qualification.
+
+External recordings may be validated without adding datasets to Git. After
+sourcing `setup_local.sh` as above, pass copied or read-only recordings explicitly:
+
+```bash
+python3 test/unitree_ros2_test/check_bags.py /path/to/recording \
+  --ros --report /path/to/results/bag-regression.json
+```
+
+Omit `--ros` for deserialization and field checks without creating ROS nodes.
+With `--ros`, only representative telemetry samples are published, on remapped
+`/unitree_regression/telemetry/` topics using the loopback configuration. This
+checks subscriber processing; it is not a timed replay of the entire recording.
+The utility inventories all topics and reports missing message definitions.
+Missing required Unitree telemetry definitions fail validation. It compares all
+known fields through independent CDR decoding and a ROS serialization roundtrip,
+records timestamp/payload digests and checks that the original file is unchanged.
+Observed firmware serialization trailers are reported explicitly; unexplained
+trailing payloads fail validation. Recordings may also contain robot commands,
+which this utility does not publish. Recorded-data tests do not establish native
+firmware communication.
+
+For timed playback through the actual `ros2 bag play` executable, use a SQLite3
+recording directory with `metadata.yaml`:
+
+```bash
+python3 test/unitree_ros2_test/replay_bags.py /path/to/recording \
+  --rate 0.25 --report /path/to/results/timed-replay.json
+```
+
+Keep the report outside the source recording. This verifier requires loopback
+Cyclone DDS, unicast discovery and domain 173. It explicitly whitelists supported
+telemetry types and remaps every selected topic under a unique
+`/unitree_regression/replay/` namespace. It compares every received message with
+the source in order, including embedded stamps and sequence fields, requires
+exact counts and matching semantic digests, and verifies unchanged source file
+hashes. Player errors fail the check even when the player exits successfully.
+No command topic or `/clock` is replayed. MCAP timed playback is not implemented;
+the offline field checker can read MCAP when its storage plugin is installed.
+
+## Cyclone DDS version interoperability
+
+The normal tests use the distribution's Cyclone DDS. To test a separate plain
+DDS 0.10.2 process against the installed Jazzy RMW, use the optional pinned-source
+test after selecting the loopback setup above:
+
+```bash
+scripts/test_cyclone_0102.sh /tmp/unitree-cyclone-0102
+```
+
+The scratch directory contains the source, build, private install and JUnit
+result. Only the peer process loads DDS 0.10.2. The ROS process continues to load
+Jazzy's DDS library. This exercises XCDR1 telemetry, nested GO and HG states,
+sport timestamps and API request/response envelopes without robot hardware.
+The Jazzy x86_64 CI job also runs this test.
+
+## Robot-facing configuration
+
+Choose the Ethernet interface connected to the robot explicitly. Configure its
+address according to the robot model's official network documentation. Start a
+clean shell, source Jazzy and select the workspace:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+cd unitree_ros2
+export UNITREE_ROS_WS="$PWD"
+source setup.sh YOUR_ETHERNET_INTERFACE jazzy
+```
+
+Replace `YOUR_ETHERNET_INTERFACE` with the actual interface name. The helper
+rejects an absent or invalid interface and does not guess one. Set
+`ROS_DOMAIN_ID` to the domain required by the firmware before starting nodes.
+Local regression domain 173 is separate from the firmware domain. The script
+selects `rmw_cyclonedds_cpp` and binds Cyclone DDS to the chosen interface.
+`setup_default.sh jazzy` instead allows Cyclone DDS to choose its default
+interface, which is useful only when that selection is appropriate.
+
+The telemetry examples use sensor-data QoS so best-effort firmware publishers
+can match them. API request/response topics retain their existing Unitree message
+schemas and topic conventions. Verify QoS and the firmware's topic names for the
+specific robot. Restart a previously running ROS CLI daemon after changing RMW,
+domain or DDS configuration so discovery reflects the current environment.
+
+Start with read-only telemetry under the robot's documented safety procedure.
+Control examples can actuate hardware. Native firmware interoperability and every
+control function require separate hardware qualification before production use.
+
+## Validation matrix and limits
+
+| Function | Automated coverage | Evidence boundary |
+| --- | --- | --- |
+| `unitree_go`, `unitree_hg`, `unitree_api` | Build and generated-interface serialization tests | Does not qualify every firmware release |
+| Existing examples and clients | Build all targets; start subscriber examples | Motion and mode-changing examples are not executed |
+| ROS publisher/subscriber transport | Isolated Cyclone DDS tests | ROS-level communication on loopback |
+| Native DDS and API envelopes | Plain DDS peer generated from official IDL | Software peer interoperability, not a robot |
+| External ROS bags | Explicitly supplied offline telemetry recordings | Dataset-specific deserialization and field checks |
+| Jazzy x86_64 | Native Ubuntu 24.04 CI job | Runner results are required before claiming CI success |
+| Jazzy ARM64 | Native `ubuntu-24.04-arm` CI job | No emulation; no ARM robot deployment is tested |
+| Humble x86_64 | Native Ubuntu 22.04 regression job | Uses Humble's own middleware and dependencies |
+| Actual robot firmware and control | Separate hardware validation required | Not established by CI or bag replay |
+
+The [native ROS 2 workflow](../.github/workflows/native-ros2.yml) resolves
+per-distribution dependencies with rosdep, builds interfaces and examples, runs
+all package tests and uploads logs and JUnit artifacts even when checks fail.
+It does not replace the existing Foxy workflow. Foxy compatibility remains a
+separate legacy validation target; do not infer it from a Jazzy or Humble run.
+
+The full test command intentionally retains the existing example lint checks.
+The upstream example sources currently have copyright and style violations,
+and the bundled-source formatter can exceed its test timeout. These failures
+remain visible in CI and must be resolved before claiming a green full suite.
+The functional tests in unitree_ros2_test report their results separately.

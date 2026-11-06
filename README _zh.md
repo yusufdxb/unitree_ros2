@@ -1,4 +1,7 @@
 [TOC]
+
+Ubuntu 24.04 / ROS 2 Jazzy: [原生安装与验证指南](docs/jazzy.md)。Jazzy 使用发行版自带的 Cyclone DDS 和 RMW，无需按照下文重新编译 DDS。
+
 # Unitree 机器人ros2支持
 Unitree SDK2基于cyclonedds实现了一个易用的机器人数据通信机制，应用开发者可以利用这一接口实现机器人的数据通讯和指令控制(**支持Go2、B2和H1**)。 https://github.com/unitreerobotics/unitree_sdk2
 ROS2也使用DDS作为通讯工具，因此Go2、B2和H1机器人的底层可以兼容ros2，使用ros2自带的  msg 直接进行通讯和控制，而无需通过sdk接口转发。
