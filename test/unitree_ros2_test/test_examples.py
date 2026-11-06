@@ -1,5 +1,4 @@
 """Exercise the existing telemetry subscribers and recorder on private topics."""
-import os
 from pathlib import Path
 import signal
 import subprocess
@@ -27,7 +26,8 @@ def test_telemetry_examples(executable, type_name, topic, marker, tmp_path):
     cls = get_message(type_name)
     message = populate(cls())
     safe_topic = '/unitree_test/examples/' + executable
-    binary = Path(get_package_prefix('unitree_ros2_example')) / 'lib/unitree_ros2_example' / executable
+    prefix = Path(get_package_prefix('unitree_ros2_example'))
+    binary = prefix / 'lib/unitree_ros2_example' / executable
     args = [str(binary), '--ros-args', '-r', topic + ':=' + safe_topic]
     bag_path = tmp_path / 'recording'
     if executable == 'record_bag':
@@ -64,8 +64,9 @@ def test_telemetry_examples(executable, type_name, topic, marker, tmp_path):
                     rosbag2_py.ConverterOptions('', ''))
         types = reader.get_all_topics_and_types()
         assert len(types) == 1 and types[0].type == type_name
+        assert types[0].name == safe_topic
         assert reader.has_next()
         name, data, timestamp = reader.read_next()
-        assert name == topic
+        assert name == safe_topic
         assert timestamp > 0
         assert fields(deserialize_message(data, cls)) == fields(message)

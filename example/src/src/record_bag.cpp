@@ -8,6 +8,9 @@
 #include "rosbag2_cpp/writer.hpp"
 #include "rosbag2_cpp/writers/sequential_writer.hpp"
 #include "rosbag2_storage/serialized_bag_message.hpp"
+#if __has_include("rosbag2_storage/storage_options.hpp")
+#include "rosbag2_storage/storage_options.hpp"
+#endif
 #include "unitree_go/msg/sport_mode_state.hpp"
 
 constexpr bool HIGH_FREQ = false;
@@ -23,24 +26,18 @@ class MotionStateSuber : public rclcpp::Node {
       topic_name = "sportmodestate";
     }
 
-#ifdef UNITREE_ROSBAG2_SEPARATE_TIMESTAMPS
-    const rosbag2_storage::StorageOptions storage_options(
+#if __has_include("rosbag2_storage/storage_options.hpp")
+    using StorageOptions = rosbag2_storage::StorageOptions;
 #else
-    const rosbag2_cpp::StorageOptions storage_options(
+    using StorageOptions = rosbag2_cpp::StorageOptions;
 #endif
+    const StorageOptions storage_options(
         {declare_parameter<std::string>("output", "motion_state_bag"), "sqlite3"});
     const rosbag2_cpp::ConverterOptions converter_options(
         {rmw_get_serialization_format(), rmw_get_serialization_format()});
     writer_ = std::make_unique<rosbag2_cpp::writers::SequentialWriter>();
 
     writer_->open(storage_options, converter_options);
-
-    rosbag2_storage::TopicMetadata metadata;
-    metadata.name = topic_name;
-    metadata.type = "unitree_go/msg/SportModeState";
-    metadata.serialization_format = rmw_get_serialization_format();
-    writer_->create_topic(metadata);
-    topic_name_ = topic_name;
 
     // The suber  callback function is bind to
     // motion_state_suber::topic_callback
@@ -49,6 +46,12 @@ class MotionStateSuber : public rclcpp::Node {
         [this](unitree_go::msg::SportModeState::SharedPtr data) {
           topic_callback(data);
         });
+    topic_name_ = suber_->get_topic_name();
+    rosbag2_storage::TopicMetadata metadata;
+    metadata.name = topic_name_;
+    metadata.type = "unitree_go/msg/SportModeState";
+    metadata.serialization_format = rmw_get_serialization_format();
+    writer_->create_topic(metadata);
   }
 
  private:

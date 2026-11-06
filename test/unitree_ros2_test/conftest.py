@@ -8,8 +8,9 @@ import pytest
 @pytest.fixture(scope='session', autouse=True)
 def isolated_communication(request):
     communicating = {'test_native_dds.py', 'test_examples.py', 'test_api_client.py',
-                     'test_replay_bags.py'}
-    if not any(item.path.name in communicating for item in request.session.items):
+                     'test_replay_tool.py'}
+    if not any(os.path.basename(item.location[0]) in communicating
+               for item in request.session.items):
         return
     if os.environ.get('RMW_IMPLEMENTATION') != 'rmw_cyclonedds_cpp':
         pytest.fail('Communication tests require rmw_cyclonedds_cpp')

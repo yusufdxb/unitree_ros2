@@ -21,7 +21,8 @@ def test_local_source_from_other_directory():
     result = run('cd /; source "' + str(ROOT / 'setup_local.sh') +
                  '" ' + os.environ['ROS_DISTRO'] +
                  '; test "$RMW_IMPLEMENTATION" = rmw_cyclonedds_cpp && '
-                 'test "$ROS_DOMAIN_ID" = 173 && [[ "$CYCLONEDDS_URI" == *127.0.0.1* ]]')
+                 'test "$ROS_DOMAIN_ID" = 173 && [[ "$CYCLONEDDS_URI" == *127.0.0.1* ]] && '
+                 '[[ "$CYCLONEDDS_URI" == *"<ParticipantIndex>auto</ParticipantIndex>"* ]]')
     assert result.returncode == 0, result.stderr
 
 

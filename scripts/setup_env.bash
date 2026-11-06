@@ -41,7 +41,7 @@ _unitree_setup() {
       unset ROS_LOCALHOST_ONLY
       export ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST
       export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-173}"
-      export CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces><NetworkInterface name="lo" multicast="true"/></Interfaces><AllowMulticast>false</AllowMulticast></General><Discovery><Peers><Peer Address="127.0.0.1"/></Peers></Discovery></Domain></CycloneDDS>'
+      export CYCLONEDDS_URI='<CycloneDDS><Domain><General><Interfaces><NetworkInterface name="lo" multicast="true"/></Interfaces><AllowMulticast>false</AllowMulticast></General><Discovery><ParticipantIndex>auto</ParticipantIndex><Peers><Peer Address="127.0.0.1"/></Peers></Discovery></Domain></CycloneDDS>'
       ;;
     network)
       unset ROS_LOCALHOST_ONLY ROS_AUTOMATIC_DISCOVERY_RANGE
