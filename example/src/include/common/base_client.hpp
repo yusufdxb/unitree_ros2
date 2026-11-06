@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <cstdint>
 #include <future>
 #include <rclcpp/rclcpp.hpp>
@@ -29,17 +30,24 @@ class BaseClient {
                                                     rclcpp::QoS(1))) {}
 
   int32_t Call(Request req, nlohmann::json& js) {
-    std::promise<const std::shared_ptr<const Response>> response_promise;
-    auto response_future = response_promise.get_future();
+    // Callbacks can outlive a timeout and duplicate responses can be queued.
+    // Own completion state independently of this call's stack frame.
+    auto response_promise =
+        std::make_shared<std::promise<Response::ConstSharedPtr>>();
+    auto completed = std::make_shared<std::atomic<bool>>(false);
+    auto response_future = response_promise->get_future();
     req.header.identity.id = unitree::common::GetSystemUptimeInNanoseconds();
     const auto identity_id = req.header.identity.id;
+    const auto api_id = req.header.identity.api_id;
 
     auto req_suber_ = node_->create_subscription<Response>(
         topic_name_response_, rclcpp::QoS(1),
-        [&response_promise,
-         identity_id](const std::shared_ptr<const Response> data) {
-          if (data->header.identity.id == identity_id) {
-            response_promise.set_value(data);
+        [response_promise, completed, identity_id, api_id](
+            const Response::ConstSharedPtr data) {
+          if (data->header.identity.id == identity_id &&
+              data->header.identity.api_id == api_id &&
+              !completed->exchange(true)) {
+            response_promise->set_value(data);
           }
         });
 
