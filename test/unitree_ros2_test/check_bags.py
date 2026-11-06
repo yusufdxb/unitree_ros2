@@ -175,11 +175,14 @@ def open_rosbag(path):
 
 def mcap_inventory(path):
     reader = open_rosbag(path)
-    topics = {t.name: {'name': t.name, 'type': t.type,
-                     'serialization_format': t.serialization_format,
-                     'count': 0, 'first_timestamp_ns': None,
-                     'last_timestamp_ns': None}
-              for t in reader.get_all_topics_and_types()}
+    topics = {
+        t.name: {
+            'name': t.name, 'type': t.type,
+            'serialization_format': t.serialization_format,
+            'count': 0, 'first_timestamp_ns': None, 'last_timestamp_ns': None,
+        }
+        for t in reader.get_all_topics_and_types()
+    }
     start = end = None
     while reader.has_next():
         name, _, stamp = reader.read_next()
@@ -347,8 +350,6 @@ def main():
     parser.add_argument('--ros', action='store_true',
                         help='also test remapped loopback telemetry pub/sub')
     args = parser.parse_args()
-    from rosidl_runtime_py.utilities import get_message
-    from rclpy.serialization import deserialize_message, serialize_message
     paths = []
     for bag in args.bags:
         candidates = sorted(bag.glob('*.db3')) + sorted(bag.glob('*.mcap')) \
@@ -356,6 +357,20 @@ def main():
         if not candidates:
             parser.error('no sqlite3/MCAP recording found: ' + str(bag))
         paths.extend(candidates)
+    if args.report:
+        destination = args.report.resolve()
+        for bag in args.bags:
+            if bag.is_dir() and (bag.resolve() == destination
+                                 or bag.resolve() in destination.parents):
+                parser.error('--report must be outside source recording directories')
+        protected = paths + [path.parent / 'metadata.yaml' for path in paths
+                             if (path.parent / 'metadata.yaml').is_file()]
+        for path in protected:
+            if (destination == path.resolve()
+                    or (destination.exists() and path.samefile(destination))):
+                parser.error('--report must not overwrite a source recording')
+    from rosidl_runtime_py.utilities import get_message
+    from rclpy.serialization import deserialize_message, serialize_message
     report = {'ros_distro': os.environ.get('ROS_DISTRO'), 'recordings': [],
               'ros_subscriber_types_verified': 0,
               'hardware_interoperability_verified': False,

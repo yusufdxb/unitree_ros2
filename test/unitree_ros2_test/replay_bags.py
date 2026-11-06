@@ -85,6 +85,19 @@ def source_files(directory):
     return info, files
 
 
+def verify_output_paths(directory, *outputs):
+    """Reject source-directory outputs and aliases of original recording files."""
+    source = directory.resolve()
+    originals = [source / 'metadata.yaml', *source.glob('*.db3'), *source.glob('*.mcap')]
+    for output in outputs:
+        destination = output.resolve()
+        if destination == source or source in destination.parents:
+            raise ValueError('outputs must be outside the source bag directory')
+        if destination.exists() and any(
+                path.exists() and path.samefile(destination) for path in originals):
+            raise ValueError('outputs must not overwrite a source recording')
+
+
 def expected_rows(files, topic_name):
     """Read a topic lazily, preserving file and stored timestamp order."""
     for path in files:
@@ -178,6 +191,8 @@ def build_player_command(directory, rate, qos_path, topics):
 
 
 def replay(directory, rate, workdir, get_message, deserialize_message):
+    verify_output_paths(
+        directory, workdir, workdir / 'playback-qos.yaml', workdir / 'rosbag-play.log')
     import rclpy
     from rclpy.qos import (
         DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy,
@@ -320,12 +335,16 @@ def main():
         parser.error('--rate must be positive and finite')
     directory = args.bag_directory.resolve()
     # Keep logs beside the report, never inside the source recording.
-    if args.report.resolve().parent == directory:
-        parser.error('--report must be outside the source bag directory')
+    workdir = args.report.parent / (args.report.stem + '-playback')
+    try:
+        verify_output_paths(
+            directory, args.report, workdir,
+            workdir / 'playback-qos.yaml', workdir / 'rosbag-play.log')
+    except ValueError as error:
+        parser.error(str(error))
     args.report.parent.mkdir(parents=True, exist_ok=True)
     from rosidl_runtime_py.utilities import get_message
     from rclpy.serialization import deserialize_message
-    workdir = args.report.parent / (args.report.stem + '-playback')
     workdir.mkdir(parents=True, exist_ok=True)
     try:
         report = replay(directory, args.rate, workdir, get_message,

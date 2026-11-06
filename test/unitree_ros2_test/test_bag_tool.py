@@ -1,7 +1,11 @@
 """Synthetic regression fixtures for the read-only Unitree bag checker."""
 import importlib.util
+import json
+import os
 from pathlib import Path
 import sqlite3
+import subprocess
+import sys
 
 import pytest
 from rclpy.serialization import deserialize_message, serialize_message
@@ -94,6 +98,79 @@ def test_all_fields_roundtrip_and_source_preserved(tmp_path, typename):
     assert topic['timestamp_and_payload_sha256']
     check_bags.equal(check_bags.plain(message),
                      check_bags.plain(samples[typename]))
+
+
+@pytest.mark.parametrize('alias', ['direct', 'symlink', 'hardlink'])
+def test_report_refuses_source_recording_alias(tmp_path, alias):
+    typename = TYPES[0]
+    path = recording(tmp_path, [
+        (typename, serialize_message(telemetry(typename)))])
+    report = path if alias == 'direct' else tmp_path / 'report.json'
+    if alias == 'symlink':
+        report.symlink_to(path)
+    elif alias == 'hardlink':
+        os.link(path, report)
+    before = path.read_bytes()
+    result = subprocess.run(
+        [sys.executable, str(Path(check_bags.__file__)), str(path),
+         '--report', str(report)], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert 'must not overwrite a source recording' in result.stderr
+    assert path.read_bytes() == before
+
+
+def test_report_refuses_source_recording_directory(tmp_path):
+    typename = TYPES[0]
+    path = recording(tmp_path, [
+        (typename, serialize_message(telemetry(typename)))])
+    metadata = tmp_path / 'metadata.yaml'
+    metadata.write_text('original metadata\n')
+    before = path.read_bytes()
+    result = subprocess.run(
+        [sys.executable, str(Path(check_bags.__file__)), str(tmp_path),
+         '--report', str(metadata)], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert 'outside source recording directories' in result.stderr
+    assert path.read_bytes() == before
+    assert metadata.read_text() == 'original metadata\n'
+
+
+@pytest.mark.parametrize('alias', ['direct', 'hardlink'])
+def test_file_input_report_cannot_overwrite_source_metadata(tmp_path, alias):
+    typename = TYPES[0]
+    path = recording(tmp_path, [
+        (typename, serialize_message(telemetry(typename)))])
+    metadata = tmp_path / 'metadata.yaml'
+    metadata.write_text('original metadata\n')
+    report = metadata if alias == 'direct' else tmp_path / 'report.json'
+    if alias == 'hardlink':
+        os.link(metadata, report)
+    before = path.read_bytes()
+    result = subprocess.run(
+        [sys.executable, str(Path(check_bags.__file__)), str(path),
+         '--report', str(report)], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert 'must not overwrite a source recording' in result.stderr
+    assert path.read_bytes() == before
+    assert metadata.read_text() == 'original metadata\n'
+
+
+def test_report_outside_source_directory_preserves_recording(tmp_path):
+    directory = tmp_path / 'source'
+    directory.mkdir()
+    typename = TYPES[0]
+    path = recording(directory, [
+        (typename, serialize_message(telemetry(typename)))])
+    before = path.read_bytes()
+    report = tmp_path / 'report.json'
+    result = subprocess.run(
+        [sys.executable, str(Path(check_bags.__file__)), str(directory),
+         '--report', str(report)], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
+    data = json.loads(report.read_text())
+    assert data['passed']
+    assert data['recordings'][0]['validated_messages'] == 1
+    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize('typename', TYPES)

@@ -1,6 +1,9 @@
 """Isolation and timed playback checks using generated SQLite bags."""
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 from rclpy.serialization import deserialize_message, serialize_message
@@ -15,7 +18,8 @@ VALID_CONFIG = (
     '<CycloneDDS><Domain><General><Interfaces>'
     '<NetworkInterface name="lo"/>'
     '</Interfaces><AllowMulticast>false</AllowMulticast></General>'
-    '<Discovery><Peers><Peer Address="127.0.0.1"/></Peers></Discovery>'
+    '<Discovery><ParticipantIndex>auto</ParticipantIndex>'
+    '<Peers><Peer Address="127.0.0.1"/></Peers></Discovery>'
     '</Domain></CycloneDDS>')
 
 
@@ -130,6 +134,45 @@ def test_generated_bag_inventory_excludes_commands(tmp_path):
     assert '/synthetic/topic_3' not in topics
     assert all('/unitree_regression/replay/run_' in topic['remapped_name']
                for topic in topics.values())
+
+
+@pytest.mark.parametrize('target', ['nested', 'direct', 'hardlink-metadata', 'hardlink-db3'])
+def test_cli_report_cannot_change_original_recording(tmp_path, target):
+    directory = synthetic_bag(tmp_path / 'bag')
+    before = {path: path.read_bytes() for path in directory.iterdir() if path.is_file()}
+    if target == 'nested':
+        report = directory / 'nested' / 'report.json'
+    elif target == 'direct':
+        report = directory / 'metadata.yaml'
+    else:
+        original = (directory / 'metadata.yaml' if target == 'hardlink-metadata'
+                    else next(directory.glob('*.db3')))
+        report = tmp_path / 'report.json'
+        os.link(original, report)
+    result = subprocess.run(
+        [sys.executable, str(Path(replay_bags.__file__)), str(directory),
+         '--report', str(report)], capture_output=True, text=True, timeout=10)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert 'outputs must' in result.stderr
+    assert {path: path.read_bytes() for path in before} == before
+    assert not (directory / 'nested').exists()
+
+
+@pytest.mark.parametrize('target', ['nested', 'hardlink-qos', 'hardlink-log'])
+def test_replay_workdir_cannot_change_original_recording(tmp_path, target):
+    directory = synthetic_bag(tmp_path / 'bag')
+    before = {path: path.read_bytes() for path in directory.iterdir() if path.is_file()}
+    if target == 'nested':
+        workdir = directory / 'nested'
+    else:
+        workdir = tmp_path / 'results'
+        workdir.mkdir()
+        filename = 'playback-qos.yaml' if target == 'hardlink-qos' else 'rosbag-play.log'
+        os.link(next(directory.glob('*.db3')), workdir / filename)
+    with pytest.raises(ValueError, match='outputs must'):
+        replay_bags.replay(directory, 1.0, workdir, get_message, deserialize_message)
+    assert {path: path.read_bytes() for path in before} == before
+    assert not (directory / 'nested').exists()
 
 
 def test_generated_bag_timed_playback(tmp_path):
