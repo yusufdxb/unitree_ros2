@@ -37,7 +37,8 @@ def sample_value(slot, seed=1):
 
 
 def populate(message, seed=1):
-    for i, (name, slot) in enumerate(zip(message.get_fields_and_field_types(), message.SLOT_TYPES)):
+    slots = zip(message.get_fields_and_field_types(), message.SLOT_TYPES)
+    for i, (name, slot) in enumerate(slots):
         setattr(message, name, sample_value(slot, seed + i))
     return message
 

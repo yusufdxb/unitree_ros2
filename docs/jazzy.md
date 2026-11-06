@@ -43,7 +43,13 @@ package. Use that matched pair. Firmware using Cyclone DDS 0.10.2 does not requi
 replacing Jazzy's system library with 0.10.2. DDS interoperability and local
 library ABI compatibility are different requirements. Do not overlay a different
 Cyclone DDS library beneath the packaged Jazzy RMW implementation, and do not
-source Humble into a Jazzy shell. The `rosidl_generator_dds_idl` dependency emits
+source Humble into a Jazzy shell. If apt reports the ROSIDL package unavailable, check the configured ROS 2 Noble
+repository and run `sudo apt update`; install the package through apt in the
+selected environment. Lack of permission to install a package is a separate
+issue from package availability. Use a disposable container when host package
+installation is restricted; do not extract ROS packages into a custom overlay.
+
+The `rosidl_generator_dds_idl` dependency emits
 DDS IDL used by the plain DDS regression peer; it does not select the Connext RMW.
 
 ## Offline validation
@@ -53,13 +59,14 @@ For the repository-root workspace, select its install explicitly:
 ```bash
 export UNITREE_ROS_WS="$PWD"
 source setup_local.sh jazzy
-colcon test --executor sequential --event-handlers console_direct+ \
-  --return-code-on-test-failure
-colcon test-result --all --verbose
+colcon test --packages-select unitree_ros2_test --executor sequential \
+  --event-handlers console_direct+ --return-code-on-test-failure
+colcon test-result --test-result-base build/unitree_ros2_test --all --verbose
 ```
 
 `setup_local.sh` selects Cyclone DDS, loopback networking, unicast discovery and
-domain 173 unless `ROS_DOMAIN_ID` is already set. It does not discover a robot
+domain 173 unless `ROS_DOMAIN_ID` is already set. It explicitly selects automatic
+DDS participant indexes so unicast discovery also works with Humble middleware. It does not discover a robot
 interface. The automatic tests use telemetry or private test topics. They do not
 publish motion commands or change a robot control mode.
 
@@ -86,6 +93,8 @@ The utility inventories all topics and reports missing message definitions.
 Missing required Unitree telemetry definitions fail validation. It compares all
 known fields through independent CDR decoding and a ROS serialization roundtrip,
 records timestamp/payload digests and checks that the original file is unchanged.
+Report output must be outside source recording directories and must not alias an
+input recording, including through a symlink or hardlink.
 Observed firmware serialization trailers are reported explicitly; unexplained
 trailing payloads fail validation. Recordings may also contain robot commands,
 which this utility does not publish. Recorded-data tests do not establish native
@@ -171,13 +180,26 @@ control function require separate hardware qualification before production use.
 | Actual robot firmware and control | Separate hardware validation required | Not established by CI or bag replay |
 
 The [native ROS 2 workflow](../.github/workflows/native-ros2.yml) resolves
-per-distribution dependencies with rosdep, builds interfaces and examples, runs
-all package tests and uploads logs and JUnit artifacts even when checks fail.
+per-distribution dependencies with rosdep, builds interfaces and examples, gates
+the functional regression package, verifies all 24 installed examples and checks
+for foreign ROS underlays in CMake caches. It also runs the existing package lint
+checks in a separate, nonblocking step and uploads their logs and JUnit artifacts
+even when checks fail.
 It does not replace the existing Foxy workflow. Foxy compatibility remains a
 separate legacy validation target; do not infer it from a Jazzy or Humble run.
 
-The full test command intentionally retains the existing example lint checks.
+To run all existing checks locally, including example lint, use:
+
+```bash
+colcon test --executor sequential --event-handlers console_direct+ \
+  --return-code-on-test-failure
+colcon test-result --all --verbose
+```
+
+The full test command retains the existing example lint checks.
 The upstream example sources currently have copyright and style violations,
 and the bundled-source formatter can exceed its test timeout. These failures
-remain visible in CI and must be resolved before claiming a green full suite.
+remain visible in CI as a separate nonblocking result. A passing functional CI
+gate does not mean the full lint suite is green. This preserves the existing
+checks without making unrelated upstream formatting debt a functional gate.
 The functional tests in unitree_ros2_test report their results separately.

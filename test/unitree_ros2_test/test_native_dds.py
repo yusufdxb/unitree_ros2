@@ -16,13 +16,15 @@ def test_plain_dds_request_response_and_telemetry():
     rclpy.init()
     node = rclpy.create_node('native_dds_regression')
     responses, telemetry = [], []
-    response_sub = node.create_subscription(Response, namespace + '/response', responses.append, 10)
-    telemetry_sub = node.create_subscription(
-        WirelessController, namespace + '/wireless', telemetry.append, 10)
     go_states, hg_states, sport_states = [], [], []
-    go_sub = node.create_subscription(LowState, namespace + '/go_lowstate', go_states.append, 10)
-    hg_sub = node.create_subscription(HGLowState, namespace + '/hg_lowstate', hg_states.append, 10)
-    sport_sub = node.create_subscription(SportModeState, namespace + '/sport', sport_states.append, 10)
+    subscriptions = [
+        node.create_subscription(Response, namespace + '/response', responses.append, 10),
+        node.create_subscription(
+            WirelessController, namespace + '/wireless', telemetry.append, 10),
+        node.create_subscription(LowState, namespace + '/go_lowstate', go_states.append, 10),
+        node.create_subscription(HGLowState, namespace + '/hg_lowstate', hg_states.append, 10),
+        node.create_subscription(SportModeState, namespace + '/sport', sport_states.append, 10),
+    ]
     publisher = node.create_publisher(Request, namespace + '/request', 10)
     request = Request()
     request.header.identity.id = 0x1234567887654321
@@ -35,10 +37,12 @@ def test_plain_dds_request_response_and_telemetry():
     peer_env['UNITREE_DDS_TEST_NAMESPACE'] = namespace.lstrip('/')
     if os.environ.get('UNITREE_DDS_PEER_LIBRARY_PATH'):
         peer_env['LD_LIBRARY_PATH'] = os.environ['UNITREE_DDS_PEER_LIBRARY_PATH']
-    process = subprocess.Popen([peer], env=peer_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    process = subprocess.Popen(
+        [peer], env=peer_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         deadline = time.monotonic() + 20
-        while time.monotonic() < deadline and (not responses or not telemetry or not go_states or not hg_states or not sport_states):
+        while (time.monotonic() < deadline
+               and not all((responses, telemetry, go_states, hg_states, sport_states))):
             if publisher.get_subscription_count():
                 publisher.publish(request)
             rclpy.spin_once(node, timeout_sec=0.05)
@@ -69,5 +73,7 @@ def test_plain_dds_request_response_and_telemetry():
         if process.poll() is None:
             process.kill()
             process.communicate()
+        for subscription in subscriptions:
+            node.destroy_subscription(subscription)
         node.destroy_node()
         rclpy.shutdown()
