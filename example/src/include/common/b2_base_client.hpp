@@ -29,6 +29,7 @@ class BaseClient {
   rclcpp::SubscriptionOptions sub_opts_;
   std::shared_ptr<rclcpp::executors::MultiThreadedExecutor> executor_;
   std::thread spin_thread_;
+  std::atomic<bool> stop_requested_{false};
 
   std::atomic<uint64_t> current_request_id_{0};
   std::atomic<int64_t> current_api_id_{0};
@@ -49,6 +50,7 @@ public:
   }
 
   ~BaseClient() {
+    stop_requested_.store(true);
     if (executor_) {
       executor_->cancel();
     }
@@ -131,7 +133,12 @@ private:
     executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
     executor_->add_callback_group(sub_group_, node_->get_node_base_interface());
     spin_thread_ = std::thread([this]() {
-      executor_->spin();
+      // cancel() can precede the thread entering spin(), which resets the
+      // executor's spinning flag. Bound each wait and retain our stop request
+      // independently so immediate destruction cannot leave join() blocked.
+      while (!stop_requested_.load() && rclcpp::ok(node_->get_node_options().context())) {
+        executor_->spin_once(std::chrono::milliseconds(50));
+      }
     });
 
     WaitForConnection();

@@ -54,6 +54,14 @@ int main(int argc, char ** argv)
     });
   rclcpp::executors::SingleThreadedExecutor executor;
   executor.add_node(server);
+  if (mode == "rapid-lifecycle") {
+    for (int cycle = 0; cycle < 25; ++cycle) {
+      BaseClient client(node.get(), "/unitree_test/b2/request", "/unitree_test/b2/response");
+    }
+    std::cout << "25 immediate create/destroy cycles completed" << std::endl;
+    rclcpp::shutdown();
+    return 0;
+  }
   std::thread spin([&executor]() {executor.spin();});
   unitree_api::msg::Request request;
   request.header.identity.api_id = 1001;
