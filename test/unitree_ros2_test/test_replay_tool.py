@@ -2,8 +2,10 @@
 import importlib.util
 import os
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
+import time
 
 import pytest
 from rclpy.serialization import deserialize_message, serialize_message
@@ -175,14 +177,48 @@ def test_replay_workdir_cannot_change_original_recording(tmp_path, target):
     assert not (directory / 'nested').exists()
 
 
-def test_generated_bag_timed_playback(tmp_path):
+def test_replay_rejects_truncated_data_before_rmw(tmp_path):
+    directory = synthetic_bag(tmp_path / 'bag')
+    path = next(directory.glob('*.db3'))
+    with sqlite3.connect(path) as connection:
+        connection.execute('UPDATE messages SET data=?', (b'\x00',))
+
+    def forbidden_deserializer(*args):
+        pytest.fail('malformed recording reached the native deserializer')
+
+    with pytest.raises(ValueError, match='encapsulation'):
+        replay_bags.inventory([path], get_message, forbidden_deserializer)
+
+
+@pytest.mark.parametrize('reliability,callback_delay', [
+    ('reliable', 0), ('best_effort', 0), ('best_effort', 0.4)])
+def test_generated_bag_timed_playback(tmp_path, monkeypatch, reliability, callback_delay):
     directory = synthetic_bag(tmp_path / 'bag')
     workdir = tmp_path / 'results'
     workdir.mkdir()
+    if callback_delay:
+        original_normalized = replay_bags.normalized
+        calls = 0
+
+        def slow_check(value):
+            nonlocal calls
+            calls += 1
+            # Inventory consumes nine fields digests first. Delay only the
+            # subscription's checker to leave valid samples queued at EOF.
+            if calls > 9:
+                time.sleep(callback_delay)
+            return original_normalized(value)
+
+        monkeypatch.setattr(replay_bags, 'normalized', slow_check)
     report = replay_bags.replay(
-        directory, 1.0, workdir, get_message, deserialize_message)
+        directory, 1.0, workdir, get_message, deserialize_message,
+        reliability=reliability)
     assert report['passed'], report['errors']
     assert report['player_exit_code'] == 0
+    assert report['playback_qos']['reliability'] == reliability
+    assert report['runtime']['subscriber_cpu_seconds'] > 0
+    assert report['runtime']['messages_per_wall_second'] > 0
+    assert not report['timing_policy']['historical_bag_timestamp_used_for_latency']
     assert (report['source_duration_seconds']
             > report['selected_telemetry_duration_seconds'])
     assert len(report['topics']) == 3
@@ -190,5 +226,8 @@ def test_generated_bag_timed_playback(tmp_path):
     for topic in report['topics']:
         assert topic['received_count'] == topic['count'] == 3
         assert not topic['errors']
+        from rclpy.subscription import Subscription
+        expected_timings = 3 if hasattr(Subscription, 'CallbackType') else 0
+        assert topic['timing']['publisher_schedule_drift']['count'] == expected_timings
         assert (topic['received_fields_sha256']
                 == topic['expected_fields_sha256'])
