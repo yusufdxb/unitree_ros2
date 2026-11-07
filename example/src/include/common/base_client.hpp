@@ -33,6 +33,15 @@ class BaseClient {
                                                     rclcpp::QoS(1))) {}
 
   int32_t Call(Request req, nlohmann::json& js) {
+    return CallImpl(std::move(req), &js);
+  }
+
+  int32_t Call(Request req) {
+    return CallImpl(std::move(req), nullptr);
+  }
+
+ private:
+  int32_t CallImpl(Request req, nlohmann::json* js) {
     // Callbacks can outlive a timeout and duplicate responses can be queued.
     // Own completion state independently of this call's stack frame.
     auto response_promise =
@@ -64,9 +73,17 @@ class BaseClient {
         std::cout << "error code: " << response.header.status.code << std::endl;
         return response.header.status.code;
       }
-      try {
-        js = nlohmann::json::parse(response.data.data());
-      } catch (nlohmann::detail::exception& e) {
+      if (js != nullptr) {
+        // JSON cannot contain literal NUL bytes. A C-string parser would hide
+        // any bytes following one and could accept a corrupt response.
+        if (response.data.find('\0') != std::string::npos) {
+          return UT_ROBOT_TASK_UNKNOWN_ERROR;
+        }
+        try {
+          *js = nlohmann::json::parse(response.data);
+        } catch (const nlohmann::json::exception&) {
+          return UT_ROBOT_TASK_UNKNOWN_ERROR;
+        }
       }
       return UT_ROBOT_SUCCESS;
     }
@@ -76,8 +93,4 @@ class BaseClient {
     return UT_ROBOT_TASK_UNKNOWN_ERROR;
   }
 
-  int32_t Call(Request req) {
-    nlohmann::json js;
-    return Call(std::move(req), js);
-  }
 };
