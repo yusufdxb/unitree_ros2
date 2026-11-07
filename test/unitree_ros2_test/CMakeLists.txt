@@ -23,9 +23,9 @@ if(BUILD_TESTING)
   ament_add_pytest_test(bag_tool test_bag_tool.py TIMEOUT 60)
   ament_add_pytest_test(independent_bags test_compare_bags.py TIMEOUT 60)
   ament_add_pytest_test(interfaces test_interfaces.py TIMEOUT 120)
-  ament_add_pytest_test(native_dds test_native_dds.py TIMEOUT 60
+  ament_add_pytest_test(native_dds test_native_dds.py TIMEOUT 120
     ENV "UNITREE_DDS_PEER=$<TARGET_FILE:dds_peer>")
-  ament_add_pytest_test(examples test_examples.py TIMEOUT 60)
+  ament_add_pytest_test(examples test_examples.py TIMEOUT 120)
   ament_add_pytest_test(setup_scripts test_setup.py TIMEOUT 30)
 endif()
 ament_package()

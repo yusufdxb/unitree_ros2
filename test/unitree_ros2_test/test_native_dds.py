@@ -8,9 +8,19 @@ import rclpy
 from unitree_api.msg import Request, Response
 from unitree_go.msg import WirelessController, LowState, SportModeState
 from unitree_hg.msg import LowState as HGLowState
+import pytest
+
+# Loopback configuration of the pre-Jazzy setup_local.sh. unitree_sdk2 processes
+# (for example a local simulator) bind "lo" the same way, without unicast peers
+# or fixed participant indexes, so the current loopback setup must still reach them.
+LEGACY_LOOPBACK_URI = (
+    '<CycloneDDS><Domain><General><Interfaces>'
+    '<NetworkInterface name="lo" priority="default" multicast="default" />'
+    '</Interfaces></General></Domain></CycloneDDS>')
 
 
-def test_plain_dds_request_response_and_telemetry():
+@pytest.mark.parametrize('peer_config', ['same-as-ros', 'legacy-loopback'])
+def test_plain_dds_request_response_and_telemetry(peer_config):
     peer = os.environ['UNITREE_DDS_PEER']
     namespace = '/unitree_test/native_' + uuid.uuid4().hex
     rclpy.init()
@@ -35,6 +45,8 @@ def test_plain_dds_request_response_and_telemetry():
     request.binary = [0, 127, 128, 255]
     peer_env = os.environ.copy()
     peer_env['UNITREE_DDS_TEST_NAMESPACE'] = namespace.lstrip('/')
+    if peer_config == 'legacy-loopback':
+        peer_env['CYCLONEDDS_URI'] = LEGACY_LOOPBACK_URI
     if os.environ.get('UNITREE_DDS_PEER_LIBRARY_PATH'):
         peer_env['LD_LIBRARY_PATH'] = os.environ['UNITREE_DDS_PEER_LIBRARY_PATH']
     process = subprocess.Popen(
