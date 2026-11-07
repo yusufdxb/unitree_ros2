@@ -448,6 +448,44 @@ destruction/recreation. Existing wrong-ID, wrong-API, duplicate, timeout, status
 and JSON cases remain enabled. Message definitions, QoS and topic names are
 unchanged. These tests do not qualify robot API behavior.
 
+## Native integration and lifecycle follow-up
+
+A separate-process probe using the existing B2 client reproduced a shutdown
+hang during the third immediate construction/destruction cycle. Cancellation
+could precede entry into the private executor's `spin()`, which then reset its
+spinning flag and blocked the destructor's thread join. An independent stop
+flag with bounded `spin_once()` waits fixes that ordering. The corrected probe
+completed 100 cycles, and a 25-cycle regression now covers this lifecycle in the
+functional gate. This does not change API topics, schemas or the call timeout.
+
+Targeted rebuilds retained all 24 examples. API-client, native DDS, interface
+roundtrip, telemetry-example and recorder checks passed 70 cases on native
+Jazzy x86_64 and in both retained Jazzy and Humble x86_64 containers. These are
+selected existing checks plus the demonstrated lifecycle regression, rather
+than another complete recording-corpus comparison. Scoped lint passed for the
+changed regression sources. Earlier full-suite results remain separate.
+
+On native Jazzy x86_64, 100 best-effort publisher/subscriber recreation cycles
+completed with all 300 messages in order and 200 endpoint-withdrawal checks.
+After warm-up, descriptors remained at 10 and threads at 12; maximum resident
+memory increased from 54,308 to 54,564 KiB. These bounded observations establish
+endpoint teardown and rediscovery for this software configuration, not sustained
+leak freedom or robot reconnection.
+
+Separate publishing and receiving processes also tested serialized
+`WirelessController` payloads truncated to 0, 1, 3, 4 and 5 bytes, surrounded by
+valid 22-byte payloads. In Jazzy and Humble the empty sample produced no callback;
+the other truncated samples delivered zero-valued messages. Both valid samples
+retained their expected fields, and no process crashed. Native Jazzy repeated the
+same result. The serialized publisher path is therefore reachable by malformed
+application buffers; a typed callback alone does not establish their validity.
+This bounded observation does not qualify arbitrary malformed network packets,
+repair packaged middleware, or supersede the direct-deserializer crash evidence.
+Owned bag verification paths retain their independent preflight checks.
+
+Live robot telemetry and native ARM64 hardware remain unqualified. Hosted CI
+requires completed GitHub Actions runs; local results do not substitute for them.
+
 ## Reproduction
 
 Build and source an isolated distribution using [the Jazzy instructions](../jazzy.md).

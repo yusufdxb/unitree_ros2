@@ -195,7 +195,29 @@ The functional gate includes the B2 executor ownership and status-only response
 regressions and synthetic tests that reject the incompatible recorded-video
 layout without changing the official interfaces. B2 clients spin only their
 response callback groups; applications retain responsibility for spinning other
-callbacks on the caller's node. API calls still have a five-second timeout.
+callbacks on the caller's node. Their private executor uses bounded waits and an
+independent stop flag, so destroying a client immediately after construction
+cannot lose a cancellation issued before the worker starts. API calls still
+have a five-second timeout.
+
+### Serialized input limitation
+
+The packaged Cyclone RMW does not provide complete validation of arbitrary CDR
+buffers. Direct deserialization of undersized buffers can terminate a process.
+Separate-process loopback experiments also show that publishing truncated
+serialized `WirelessController` buffers can deliver zero-valued messages to a
+typed subscriber in both Jazzy and Humble. This is reachable through serialized
+publisher APIs, even though the bounded experiments did not crash either process.
+Typed application callbacks cannot recover the original serialized length.
+Successful discovery or callback delivery therefore does not prove payload
+validity. These observations do not qualify arbitrary malformed RTPS traffic.
+
+The supplied recording validators and replay verifier check encapsulation,
+fields and trailers before invoking RMW. Keep that preflight when using external
+serialized recordings. Ordinary telemetry examples use typed subscriptions, and
+the recorder serializes typed messages; they do not accept arbitrary buffers
+through an application-level deserialization API. Fixing validation inside the
+packaged middleware remains outside this repository's message definitions.
 
 It does not replace the existing Foxy workflow. Foxy compatibility remains a
 separate legacy validation target; do not infer it from a Jazzy or Humble run.
