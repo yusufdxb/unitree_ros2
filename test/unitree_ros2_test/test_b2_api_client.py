@@ -7,7 +7,8 @@ import pytest
 
 @pytest.mark.parametrize('mode', ['success', 'status', 'timeout', 'malformed',
                                   'empty', 'embedded-null', 'escaped-null',
-                                  'status-only'])
+                                  'status-only', 'status-only-malformed',
+                                  'external-executor', 'recreate', 'shared-node'])
 def test_b2_api_client(mode):
     result = subprocess.run([os.environ['UNITREE_B2_API_CLIENT_TEST'], mode],
                             capture_output=True, text=True, timeout=10)

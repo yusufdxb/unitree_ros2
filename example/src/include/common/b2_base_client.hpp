@@ -58,6 +58,15 @@ public:
   }
 
   int32_t Call(Request req, nlohmann::json& js) {
+    return CallImpl(std::move(req), &js);
+  }
+
+  int32_t Call(Request req) {
+    return CallImpl(std::move(req), nullptr);
+  }
+
+private:
+  int32_t CallImpl(Request req, nlohmann::json* js) {
     std::lock_guard<std::mutex> call_lock(call_mutex_);
     ResetState();
 
@@ -81,8 +90,11 @@ public:
         if (received_response_->header.status.code != 0) {
             return received_response_->header.status.code;
         }
+        if (js == nullptr) {
+            return UT_ROBOT_SUCCESS;
+        }
         if (received_response_->data.empty()) {
-            js = nlohmann::json::object();
+            *js = nlohmann::json::object();
             return UT_ROBOT_SUCCESS;
         }
 
@@ -90,7 +102,7 @@ public:
             if (received_response_->data.find('\0') != std::string::npos) {
                 return UT_ROBOT_TASK_UNKNOWN_ERROR;
             }
-            js = nlohmann::json::parse(received_response_->data);
+            *js = nlohmann::json::parse(received_response_->data);
             auto end_time = std::chrono::steady_clock::now();
             auto wait_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
             return UT_ROBOT_SUCCESS;
@@ -102,15 +114,11 @@ public:
     }
   }
 
-  int32_t Call(Request req) {
-    nlohmann::json js;
-    return Call(std::move(req), js);
-  }
-
-private:
   void InitRosComm() {
     req_puber_ = node_->create_publisher<Request>(topic_name_request_, rclcpp::QoS(10));
-    sub_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+    // Only the response callback belongs to the private executor. The caller
+    // may already spin this node, or add other B2 clients to the same node.
+    sub_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::Reentrant, false);
     sub_opts_.callback_group = sub_group_;
 
     persistent_sub_ = node_->create_subscription<Response>(
@@ -121,7 +129,7 @@ private:
         sub_opts_);
 
     executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
-    executor_->add_node(node_->get_node_base_interface());
+    executor_->add_callback_group(sub_group_, node_->get_node_base_interface());
     spin_thread_ = std::thread([this]() {
       executor_->spin();
     });

@@ -42,7 +42,7 @@ int main(int argc, char ** argv)
       }
       response.header.status.code = mode == "status" ? -23 : 0;
       response.data = "{\"probe\":\"ok\"}";
-      if (mode == "malformed") {response.data = "{invalid-json";}
+      if (mode == "malformed" || mode == "status-only-malformed") {response.data = "{invalid-json";}
       if (mode == "empty" || mode == "status-only") {response.data.clear();}
       if (mode == "escaped-null") {response.data = R"({"probe":"\u0000"})";}
       if (mode == "embedded-null") {
@@ -64,10 +64,30 @@ int main(int argc, char ** argv)
   request.binary = {0, 127, 255};
   nlohmann::json data = {{"stale", true}};
   int result;
+  std::atomic<int> unrelated_callbacks{0};
+  auto timer = node->create_wall_timer(std::chrono::milliseconds(5), [&]() {
+        unrelated_callbacks.fetch_add(1);
+    });
+  rclcpp::executors::SingleThreadedExecutor caller_executor;
+  if (mode == "external-executor") {caller_executor.add_node(node);}
   {
     BaseClient client(node.get(), "/unitree_test/b2/request", "/unitree_test/b2/response");
-    result = mode == "status-only" ? client.Call(request) : client.Call(request, data);
+    result = (mode == "status-only" || mode == "status-only-malformed") ?
+      client.Call(request) : client.Call(request, data);
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    if (mode == "external-executor") {
+      const bool isolated = unrelated_callbacks.load() == 0;
+      caller_executor.spin_some();
+      if (!isolated || unrelated_callbacks.load() == 0) {result = -1;}
+    }
+    if (mode == "shared-node") {
+      BaseClient sibling(node.get(), "/unitree_test/b2/request", "/unitree_test/b2/response");
+      if (sibling.Call(request, data) != UT_ROBOT_SUCCESS) {result = -1;}
+    }
+  }
+  if (mode == "recreate") {
+    BaseClient replacement(node.get(), "/unitree_test/b2/request", "/unitree_test/b2/response");
+    if (replacement.Call(request, data) != UT_ROBOT_SUCCESS) {result = -1;}
   }
   executor.cancel();
   spin.join();
@@ -75,12 +95,14 @@ int main(int argc, char ** argv)
     (mode == "malformed" || mode == "embedded-null") ?
     UT_ROBOT_TASK_UNKNOWN_ERROR : UT_ROBOT_SUCCESS;
   bool passed = result == expected && request_valid.load();
-  if (mode == "success") {passed = passed && data.value("probe", "") == "ok";}
+  if (mode == "success" || mode == "external-executor" ||
+    mode == "recreate" || mode == "shared-node")
+  {passed = passed && data.value("probe", "") == "ok";}
   if (mode == "empty") {passed = passed && data == nlohmann::json::object();}
   if (mode == "escaped-null") {
     passed = passed && data.at("probe").get<std::string>() == std::string(1, '\0');
   }
-  if (expected != UT_ROBOT_SUCCESS || mode == "status-only") {
+  if (expected != UT_ROBOT_SUCCESS || (mode == "status-only" || mode == "status-only-malformed")) {
     passed = passed && data == nlohmann::json({{"stale", true}});
   }
   std::cout << mode << ": result=" << result << " data=" << data.dump() << std::endl;
