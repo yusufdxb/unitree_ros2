@@ -15,6 +15,11 @@ from test_interfaces import interfaces, populate
 
 def test_official_definitions_independently_decode_all_interfaces():
     definitions = compare_bags.Definitions()
+    for kind in ('unitree_go/LowState', 'unitree_go/msg/LowState',
+                 'unitree_go/msg/LowState[20]', 'sequence<unitree_go/msg/LowState>'):
+        normalized = compare_bags.normalized_kind(kind)
+        assert normalized == compare_bags.normalized_kind(normalized)
+        assert '/msg/msg/' not in normalized
     for typename in interfaces():
         cls = get_message(typename)
         message = populate(cls())

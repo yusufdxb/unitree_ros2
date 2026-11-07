@@ -20,7 +20,7 @@ def normalized_kind(kind):
     kind = re.sub(r'\bfloat\b', 'float32', kind)
     kind = re.sub(r'\bdouble\b', 'float64', kind)
     kind = re.sub(r'\bboolean\b', 'bool', kind)
-    return re.sub(r'(\w+)/(?!msg/)(\w+)', r'\1/msg/\2', kind)
+    return re.sub(r'(\w+)/(?:msg/)?(\w+)', r'\1/msg/\2', kind)
 
 
 class Definition:
