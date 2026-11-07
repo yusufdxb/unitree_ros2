@@ -55,6 +55,8 @@ class CDR:
         self.data = bytes(data)
         if len(data) < 4 or data[:2] not in (b'\x00\x00', b'\x00\x01'):
             raise ValueError('expected XCDR1 CDR encapsulation (big/little endian)')
+        if data[2] != 0 or data[3] & 0xfc:
+            raise ValueError('unsupported CDR encapsulation options')
         self.order = '<' if data[1] else '>'
         self.pos = 4
         self.get_message = get_message
@@ -65,12 +67,24 @@ class CDR:
         if self.pos + width > len(self.data):
             raise ValueError('truncated CDR at byte {}'.format(self.pos))
         result = struct.unpack_from(self.order + fmt, self.data, self.pos)[0]
+        if kind in ('boolean', 'bool') and self.data[self.pos] not in (0, 1):
+            raise ValueError('invalid CDR boolean at byte {}'.format(self.pos))
         self.pos += width
         return result
 
     def field(self, kind):
         array = re.fullmatch(r'(.+)\[(\d+)\]', kind)
         if array:
+            if array[1] in PRIMITIVES and array[1] not in ('boolean', 'bool'):
+                fmt, width = PRIMITIVES[array[1]]
+                self.pos += (-(self.pos - 4)) % width
+                count = int(array[2])
+                if self.pos + width * count > len(self.data):
+                    raise ValueError('truncated CDR at byte {}'.format(self.pos))
+                result = struct.unpack_from(self.order + str(count) + fmt,
+                                            self.data, self.pos)
+                self.pos += width * count
+                return list(result)
             return [self.field(array[1]) for _ in range(int(array[2]))]
         sequence = re.fullmatch(r'(?:bounded_)?sequence<(.+)>', kind)
         if sequence:
@@ -87,6 +101,9 @@ class CDR:
             self.pos += count
             if raw[-1] != 0:
                 raise ValueError('CDR string lacks null terminator')
+            bound = re.fullmatch(r'string<=(\d+)', kind)
+            if bound and count - 1 > int(bound[1]):
+                raise ValueError('CDR string exceeds declared bound')
             return raw[:-1].decode('utf-8')
         if kind in PRIMITIVES:
             return self.primitive(kind)
@@ -122,12 +139,19 @@ def equal(left, right, location='message'):
     elif isinstance(left, float) and math.isnan(left):
         if not math.isnan(right):
             raise AssertionError(location + ': NaN changed')
+    elif isinstance(left, float) and left == 0 and right == 0:
+        if math.copysign(1, left) != math.copysign(1, right):
+            raise AssertionError(location + ': zero sign changed')
     elif left != right:
         raise AssertionError('{}: {!r} != {!r}'.format(location, left, right))
 
 
 def open_sqlite(path):
-    connection = sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True)
+    for suffix in ('-wal', '-journal'):
+        sidecar = Path(str(path) + suffix)
+        if sidecar.exists() and sidecar.stat().st_size:
+            raise ValueError('requires a finalized SQLite bag without active WAL/journal')
+    connection = sqlite3.connect(path.resolve().as_uri() + '?mode=ro&immutable=1', uri=True)
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -138,24 +162,26 @@ def sqlite_inventory(path):
             "SELECT name FROM sqlite_master WHERE type='table'")}
         schema = dict(connection.execute('SELECT * FROM schema').fetchone()) \
             if 'schema' in tables else {}
+        counts = {row[0]: row[1:] for row in connection.execute(
+            'SELECT topic_id, count(*), min(timestamp), max(timestamp) '
+            'FROM messages GROUP BY topic_id')}
         topics = []
         for row in connection.execute('SELECT * FROM topics'):
             topic = dict(row)
             topic.pop('offered_qos_profiles', None)
-            count, start, end = connection.execute(
-                'SELECT count(*), min(timestamp), max(timestamp) FROM messages '
-                'WHERE topic_id=?', (topic['id'],)).fetchone()
+            count, start, end = counts.get(topic['id'], (0, None, None))
             topic.update(count=count, first_timestamp_ns=start,
                          last_timestamp_ns=end)
             topics.append(topic)
-        start, end = connection.execute(
-            'SELECT min(timestamp), max(timestamp) FROM messages').fetchone()
+        starts = [values[1] for values in counts.values() if values[1] is not None]
+        ends = [values[2] for values in counts.values() if values[2] is not None]
+        start, end = (min(starts), max(ends)) if starts else (None, None)
     return {'schema': schema, 'topics': topics,
             'duration_ns': end - start if start is not None else 0}
 
 
 def rows_sqlite(path, topics):
-    selected = {t['id']: t for t in topics if t['type'] in TELEMETRY}
+    selected = {t['id']: t for t in topics if canonical_type(t['type']) in TELEMETRY}
     with open_sqlite(path) as connection:
         # Read only selected telemetry. Request/command payloads are never replayed.
         for topic_id in selected:
@@ -199,7 +225,7 @@ def mcap_inventory(path):
 
 
 def rows_mcap(path, topics):
-    selected = {t['name']: t for t in topics if t['type'] in TELEMETRY}
+    selected = {t['name']: t for t in topics if canonical_type(t['type']) in TELEMETRY}
     reader = open_rosbag(path)
     while reader.has_next():
         name, data, stamp = reader.read_next()
@@ -248,6 +274,17 @@ def validate_ros(samples, get_message):
     return checked
 
 
+def check_trailer(typename, raw, consumed):
+    """Accept only known XCDR1 alignment or the observed legacy sport trailer."""
+    trailing = bytes(raw[consumed:])
+    alignment = 0 < len(trailing) <= 3 and len(raw) % 4 == 0
+    legacy = (typename == 'unitree_go/msg/SportModeState'
+              and len(trailing) == 280 and not any(trailing))
+    if trailing and not (alignment or legacy):
+        raise ValueError('unexplained CDR trailer: {} bytes'.format(len(trailing)))
+    return trailing, alignment
+
+
 def validate(path, get_message, deserialize_message, serialize_message, limit):
     storage = 'sqlite3' if path.suffix == '.db3' else 'mcap'
     result = {'path': str(path), 'storage': storage,
@@ -284,14 +321,9 @@ def validate(path, get_message, deserialize_message, serialize_message, limit):
             cls = classes[typename]
             decoder = CDR(raw, get_message)
             expected = decoder.message(cls)
-            trailing = bytes(raw[decoder.pos:])
             # XCDR1 alignment bytes are unspecified, including Fast DDS's
             # final alignment padding in some Humble recordings.
-            alignment_padding = (0 < len(trailing) <= 3 and len(raw) % 4 == 0)
-            firmware_padding = (typename == 'unitree_go/msg/SportModeState'
-                                and len(trailing) == 280 and not any(trailing))
-            if trailing and not (alignment_padding or firmware_padding):
-                raise ValueError('unexplained CDR trailer: {} bytes'.format(len(trailing)))
+            trailing, alignment_padding = check_trailer(typename, raw, decoder.pos)
             message = deserialize_message(bytes(raw), cls)
             equal(expected, plain(message))
             serialized = serialize_message(message)

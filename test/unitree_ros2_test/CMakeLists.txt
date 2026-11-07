@@ -21,6 +21,7 @@ if(BUILD_TESTING)
     ENV "UNITREE_B2_API_CLIENT_TEST=$<TARGET_FILE:b2_api_client_test>")
   ament_add_pytest_test(replay_tool test_replay_tool.py TIMEOUT 60)
   ament_add_pytest_test(bag_tool test_bag_tool.py TIMEOUT 60)
+  ament_add_pytest_test(independent_bags test_compare_bags.py TIMEOUT 60)
   ament_add_pytest_test(interfaces test_interfaces.py TIMEOUT 120)
   ament_add_pytest_test(native_dds test_native_dds.py TIMEOUT 60
     ENV "UNITREE_DDS_PEER=$<TARGET_FILE:dds_peer>")
