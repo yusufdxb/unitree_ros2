@@ -26,17 +26,17 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(rosidl_generator_dds_idl REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-        "msg/BmsCmd.msg"
-        "msg/BmsState.msg"
-        "msg/HandCmd.msg"
-        "msg/HandState.msg"
-        "msg/IMUState.msg"
-        "msg/LowCmd.msg"
-        "msg/LowState.msg"
-        "msg/MainBoardState.msg"
-        "msg/MotorCmd.msg"
-        "msg/MotorState.msg"
-        "msg/PressSensorState.msg"
+	"msg/BmsCmd.msg"
+	"msg/BmsState.msg"
+	"msg/HandCmd.msg"
+	"msg/HandState.msg"
+	"msg/IMUState.msg"
+	"msg/LowCmd.msg"
+	"msg/LowState.msg"
+	"msg/MainBoardState.msg"
+	"msg/MotorCmd.msg"
+	"msg/MotorState.msg"
+	"msg/PressSensorState.msg"
   DEPENDENCIES geometry_msgs
 )
 
