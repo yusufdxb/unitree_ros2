@@ -22,3 +22,6 @@ idlc_generate(TARGET hg_types FILES ${hg_idl}
 add_executable(dds_peer "${CMAKE_CURRENT_LIST_DIR}/../dds_peer.c")
 target_compile_options(dds_peer PRIVATE -Wall -Wextra -Wpedantic)
 target_link_libraries(dds_peer CycloneDDS::ddsc api_types go_types hg_types)
+add_executable(dds_api_server "${CMAKE_CURRENT_LIST_DIR}/../dds_api_server.c")
+target_compile_options(dds_api_server PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(dds_api_server CycloneDDS::ddsc api_types)

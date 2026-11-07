@@ -12,6 +12,14 @@ if(BUILD_TESTING)
   ament_target_dependencies(api_client_test rclcpp unitree_api)
   ament_add_pytest_test(api_client test_api_client.py TIMEOUT 30
     ENV "UNITREE_API_CLIENT_TEST=$<TARGET_FILE:api_client_test>")
+  add_executable(api_client_peer_test api_client_peer_test.cpp)
+  target_compile_features(api_client_peer_test PRIVATE cxx_std_17)
+  target_include_directories(api_client_peer_test PRIVATE
+    "../../example/src/include" "../../example/src/include/common")
+  ament_target_dependencies(api_client_peer_test rclcpp unitree_api)
+  ament_add_pytest_test(api_client_peer test_api_client_peer.py TIMEOUT 60
+    ENV "UNITREE_DDS_API_SERVER=$<TARGET_FILE:dds_api_server>"
+    "UNITREE_API_CLIENT_PEER_TEST=$<TARGET_FILE:api_client_peer_test>")
   add_executable(b2_api_client_test b2_api_client_test.cpp)
   target_compile_features(b2_api_client_test PRIVATE cxx_std_17)
   target_include_directories(b2_api_client_test PRIVATE

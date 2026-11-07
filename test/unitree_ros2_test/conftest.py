@@ -8,7 +8,8 @@ import pytest
 @pytest.fixture(scope='session', autouse=True)
 def isolated_communication(request):
     communicating = {'test_native_dds.py', 'test_examples.py', 'test_api_client.py',
-                     'test_replay_tool.py', 'test_b2_api_client.py'}
+                     'test_replay_tool.py', 'test_b2_api_client.py',
+                     'test_api_client_peer.py'}
     if not any(os.path.basename(item.location[0]) in communicating
                for item in request.session.items):
         return
