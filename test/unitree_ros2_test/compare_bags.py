@@ -292,9 +292,12 @@ def main():
     for path in args.bags:
         if not path.is_file() or path.suffix != '.db3':
             parser.error('expected an existing SQLite .db3 file: ' + str(path))
+        originals = [path, path.parent / 'metadata.yaml']
         if (path.parent.resolve() in destination.parents
                 or path.resolve() == destination
-                or (destination.exists() and path.samefile(destination))):
+                or (destination.exists() and any(
+                    original.exists() and original.samefile(destination)
+                    for original in originals))):
             parser.error('report must be outside source recording directories')
     from rclpy.serialization import deserialize_message, serialize_message
     from rosidl_runtime_py.utilities import get_message

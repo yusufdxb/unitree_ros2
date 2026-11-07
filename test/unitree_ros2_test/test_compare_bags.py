@@ -1,6 +1,8 @@
 """Independent schema checks and bounded malformed-record regressions."""
 import os
 import struct
+import subprocess
+import sys
 
 import check_bags
 import compare_bags
@@ -78,6 +80,21 @@ def test_unfinalized_sqlite_is_not_silently_read_without_its_wal(tmp_path):
     with pytest.raises(ValueError, match='finalized SQLite'):
         check_bags.open_sqlite(path)
     assert sidecar.read_bytes() == b'pending transaction'
+
+
+def test_differential_report_cannot_overwrite_hardlinked_source_metadata(tmp_path):
+    source = tmp_path / 'source'
+    source.mkdir()
+    path = recording(source, [])
+    metadata = source / 'metadata.yaml'
+    metadata.write_text('original metadata\n')
+    report = tmp_path / 'report.json'
+    os.link(metadata, report)
+    result = subprocess.run(
+        [sys.executable, compare_bags.__file__, str(path), '--report', str(report)],
+        capture_output=True, text=True, timeout=10)
+    assert result.returncode == 2, result.stderr
+    assert metadata.read_text() == 'original metadata\n'
 
 
 def test_invalid_boolean_and_unbounded_lengths_are_rejected():
