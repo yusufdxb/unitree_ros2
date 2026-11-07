@@ -4,15 +4,18 @@ from pathlib import Path
 import subprocess
 
 from ament_index_python.packages import get_package_prefix
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKSPACE = Path(get_package_prefix('unitree_go')).parents[1]
 
 
-def run(command, **extra):
+def run(command, workspace=True, **extra):
     env = {key: os.environ[key] for key in ('HOME', 'PATH', 'LANG') if key in os.environ}
-    env.update(UNITREE_ROS_WS=str(WORKSPACE), **extra)
+    if workspace:
+        env['UNITREE_ROS_WS'] = str(WORKSPACE)
+    env.update(**extra)
     return subprocess.run(['bash', '--noprofile', '--norc', '-c', command],
                           env=env, text=True, capture_output=True)
 
@@ -44,3 +47,41 @@ def test_default_clears_stale_dds_configuration():
                  os.environ['ROS_DISTRO'] + ' && test -z "$CYCLONEDDS_URI"',
                  CYCLONEDDS_URI='file:///nonexistent')
     assert result.returncode == 0, result.stderr
+
+
+def installed_distributions():
+    return sorted(path.parent.name for path in Path('/opt/ros').glob('*/setup.bash'))
+
+
+def test_argument_free_network_setup_matches_legacy_usage():
+    # The legacy README sourced setup.sh with no ROS environment and no arguments.
+    # The interface now comes from UNITREE_NETWORK_INTERFACE, the distribution
+    # from the single installed one.
+    result = run('source "' + str(ROOT / 'setup.sh') + '"; '
+                 'test "$ROS_DISTRO" = ' + os.environ['ROS_DISTRO'] + ' && '
+                 'test "$RMW_IMPLEMENTATION" = rmw_cyclonedds_cpp && '
+                 '[[ "$CYCLONEDDS_URI" == *\'NetworkInterface name="lo"\'* ]] && '
+                 'ros2 pkg prefix unitree_go >/dev/null',
+                 UNITREE_NETWORK_INTERFACE='lo')
+    if len(installed_distributions()) == 1:
+        assert result.returncode == 0, result.stdout + result.stderr
+    else:
+        assert result.returncode != 0
+        assert 'Installed distributions' in result.stderr
+
+
+def test_interface_argument_overrides_variable():
+    result = run('source "' + str(ROOT / 'setup.sh') + '" lo ' + os.environ['ROS_DISTRO'] +
+                 ' && [[ "$CYCLONEDDS_URI" == *\'name="lo"\'* ]]',
+                 UNITREE_NETWORK_INTERFACE='missing-interface')
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_repository_root_workspace_without_override():
+    # docs/jazzy.md builds one workspace at the repository root.
+    if WORKSPACE != ROOT or (ROOT / 'cyclonedds_ws/install/local_setup.bash').exists():
+        pytest.skip('test package was not built as a repository-root workspace')
+    result = run('source "' + str(ROOT / 'setup_local.sh') + '" ' + os.environ['ROS_DISTRO'] +
+                 ' && ros2 pkg prefix unitree_ros2_example', workspace=False)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout.strip().endswith(str(ROOT / 'install/unitree_ros2_example'))
