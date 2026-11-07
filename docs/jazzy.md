@@ -173,7 +173,7 @@ control function require separate hardware qualification before production use.
 | Existing examples and clients | Build all targets; start subscriber examples | Motion and mode-changing examples are not executed |
 | ROS publisher/subscriber transport | Isolated Cyclone DDS tests | ROS-level communication on loopback |
 | Native DDS and API envelopes | Plain DDS peer generated from official IDL | Software peer interoperability, not a robot |
-| External ROS bags | Explicitly supplied offline telemetry recordings | Dataset-specific deserialization and field checks |
+| External ROS bags | Explicitly supplied offline Unitree recordings | Dataset-specific field checks and recorded schema incompatibilities |
 | Jazzy x86_64 | Native Ubuntu 24.04 CI job | Runner results are required before claiming CI success |
 | Jazzy ARM64 | Native `ubuntu-24.04-arm` CI job | No emulation; no ARM robot deployment is tested |
 | Humble x86_64 | Native Ubuntu 22.04 regression job | Uses Humble's own middleware and dependencies |
@@ -203,3 +203,7 @@ remain visible in CI as a separate nonblocking result. A passing functional CI
 gate does not mean the full lint suite is green. This preserves the existing
 checks without making unrelated upstream formatting debt a functional gate.
 The functional tests in unitree_ros2_test report their results separately.
+
+See the [recorded-data regression results](validation/jazzy-rosbag-regression.md)
+for the dataset inventory, independent Humble/Jazzy comparisons, measured replay,
+fault-injection limits, and coverage of individual interfaces and examples.
