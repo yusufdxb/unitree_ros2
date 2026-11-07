@@ -12,6 +12,13 @@ if(BUILD_TESTING)
   ament_target_dependencies(api_client_test rclcpp unitree_api)
   ament_add_pytest_test(api_client test_api_client.py TIMEOUT 30
     ENV "UNITREE_API_CLIENT_TEST=$<TARGET_FILE:api_client_test>")
+  add_executable(b2_api_client_test b2_api_client_test.cpp)
+  target_compile_features(b2_api_client_test PRIVATE cxx_std_17)
+  target_include_directories(b2_api_client_test PRIVATE
+    "../../example/src/include" "../../example/src/include/common")
+  ament_target_dependencies(b2_api_client_test rclcpp unitree_api)
+  ament_add_pytest_test(b2_api_client test_b2_api_client.py TIMEOUT 30
+    ENV "UNITREE_B2_API_CLIENT_TEST=$<TARGET_FILE:b2_api_client_test>")
   ament_add_pytest_test(replay_tool test_replay_tool.py TIMEOUT 60)
   ament_add_pytest_test(bag_tool test_bag_tool.py TIMEOUT 60)
   ament_add_pytest_test(interfaces test_interfaces.py TIMEOUT 120)

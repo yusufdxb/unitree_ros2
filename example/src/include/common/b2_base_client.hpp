@@ -31,6 +31,7 @@ class BaseClient {
   std::thread spin_thread_;
 
   std::atomic<uint64_t> current_request_id_{0};
+  std::atomic<int64_t> current_api_id_{0};
   std::mutex call_mutex_;
   std::mutex response_mutex_;
   std::condition_variable response_cv_;
@@ -61,6 +62,7 @@ public:
     ResetState();
 
     req.header.identity.id = unitree::common::GetSystemUptimeInNanoseconds();
+    current_api_id_.store(req.header.identity.api_id);
     current_request_id_.store(req.header.identity.id);
 
         req_puber_->publish(req);
@@ -85,7 +87,10 @@ public:
         }
 
         try {
-            js = nlohmann::json::parse(received_response_->data.data());
+            if (received_response_->data.find('\0') != std::string::npos) {
+                return UT_ROBOT_TASK_UNKNOWN_ERROR;
+            }
+            js = nlohmann::json::parse(received_response_->data);
             auto end_time = std::chrono::steady_clock::now();
             auto wait_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
             return UT_ROBOT_SUCCESS;
@@ -139,21 +144,21 @@ private:
   }
 
   void OnResponseReceived(const std::shared_ptr<const Response> data) {
+    std::lock_guard<std::mutex> lk(response_mutex_);
     const uint64_t expected_id = current_request_id_.load();
     const uint64_t resp_id = data->header.identity.id;
 
-    if (expected_id != 0 && resp_id == expected_id) {
-        {
-            std::lock_guard<std::mutex> lk(response_mutex_);
+    if (expected_id != 0 && resp_id == expected_id &&
+        data->header.identity.api_id == current_api_id_.load() && !response_ready_) {
             received_response_ = data;
             response_ready_ = true;
-        }
         response_cv_.notify_one();
     }
   }
 
   void ResetState() {
     current_request_id_.store(0);
+    current_api_id_.store(0);
     {
         std::lock_guard<std::mutex> lk(response_mutex_);
         received_response_.reset();
