@@ -133,3 +133,26 @@ def test_independent_report_reproduces_record_identity(tmp_path):
     assert result['checked'] == 1
     assert result['topics'][0]['serialization_field_equivalent'] == 1
     assert result['source_unchanged']
+
+
+@pytest.mark.parametrize('resolution', [360, 720])
+def test_recorded_video_layout_is_not_the_official_three_sequence_schema(resolution):
+    # Synthetic diagnostic layout, with no private video bytes. A resolution
+    # word followed by one byte sequence cannot replace three official arrays.
+    payload = bytearray(1024)
+    payload[:5] = b'\x00\x00\x00\x01\x65'
+    struct.pack_into('<I', payload, resolution - 4, 0xffffffff)
+    raw = b'\x00\x01\x00\x00' + struct.pack('<QII', 123, resolution, len(payload)) + payload
+    typename = 'unitree_go/msg/Go2FrontVideoData'
+    definitions = compare_bags.Definitions()
+    with pytest.raises(ValueError, match='invalid CDR'):
+        check_bags.CDR(raw, definitions.get).message(definitions.get(typename))
+    # The unchanged official schema still accepts all three actual sequences.
+    message = get_message(typename)()
+    message.time_frame = 123
+    message.video720p = list(payload)
+    message.video360p = [0, 0, 0, 1, 101]
+    message.video180p = []
+    valid = serialize_message(message)
+    reference = check_bags.CDR(valid, definitions.get).message(definitions.get(typename))
+    assert definitions.canonical(typename, reference) == definitions.canonical(typename, message)

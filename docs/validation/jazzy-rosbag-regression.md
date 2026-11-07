@@ -358,15 +358,95 @@ rounds down. Negative zero, subnormal values, infinities and quiet NaN pass.
 A strict expected-failure test keeps this existing Humble generator limitation
 visible. No installed ROS package or official message definition was patched.
 
-Recorded Go2FrontVideoData does not match the official three-sequence schema.
-In the first 406-packet capture, every record fits a diagnostic time/resolution/
-length/H.264 layout instead; an independent media parser confirms 360p and 720p
-content. Official Humble decoding also rejects it. Publisher introspection shows
-a bare DDS producer and the official definition, but the actual producer schema
-is unavailable. No replacement protocol, message rewrite, or adapter was added.
-A second capture adds 1,507 packets with the same mismatch and diagnostic layout.
-All 1,913 recorded video packets fail the official schema. Video compatibility
-remains unresolved and these records are not accepted native field coverage.
+### Recorded video classification
+
+All 1,913 packets are classified as **unresolved producer-schema mismatches**.
+Both original SQLite recordings declare `/frontvideostream`,
+`unitree_go/msg/Go2FrontVideoData`, and `cdr` serialization. Neither embeds message
+definitions; their embedded metadata tables are empty. Adjacent capture evidence
+for the first recording lists the official `uint64 time_frame` followed by three
+`uint8[]` fields (`video720p`, `video360p`, `video180p`). The archived checkout is
+`3ff13ea08ec619496c2651fd21b172f7958dd5a5`; its video definition is unchanged
+from the current branch, verified from Git objects. That local interface inspection is
+not the publisher's serialized type definition. Endpoint inspection identifies a
+bare DDS publisher, reliable/volatile, keep-last depth 1. It cannot distinguish
+firmware from an SDK or another DDS application. Equivalent producer inspection
+and the producer definition are unavailable for the second recording.
+
+| Capture | Packets | Resolution word 360 | Resolution word 720 | Classification |
+| --- | ---: | ---: | ---: | --- |
+| April 17 observation capture | 406 | 203 | 203 | Unresolved producer schema |
+| September 11 archived capture | 1,507 | 753 | 754 | Unresolved producer schema |
+
+Every packet fits a diagnostic XCDR1 little-endian layout: a 64-bit time word,
+a 32-bit resolution word, a 32-bit byte count, exactly that many payload bytes,
+and the advertised zero-to-three bytes of final padding. This is an inference
+from bytes, not an authoritative legacy schema. The resolution word occupies the
+position where the official schema expects its first sequence length. Subsequent
+sequence lengths interpreted under the official definition exceed available
+bytes. Both distribution comparisons reject the streams. Independent H.264
+inspection identifies 640x360 and 1280x720 content in both captures. Missing initial
+PPS diagnostics prevent claims of complete decodable video.
+
+The consistent alternative layout provides evidence against treating every
+packet as randomly corrupted. It does not establish a supported legacy version,
+a mislabeled type, or the absence of capture loss. No packet is classified as
+proven truncation or valid official data. The retained per-record classification
+contains all original message IDs, timestamps, payload hashes and schema errors;
+source checks preserve the original databases. No additional independent samples
+are claimed.
+
+A backward-compatible reader requires an authoritative producer IDL or equivalent
+versioned definition and its provenance. No adapter or change to the official
+interfaces is justified by the current evidence. Synthetic 360/720 diagnostic
+fixtures verify strict rejection while valid official three-sequence messages
+still round-trip. Private video bytes are not included in the repository.
+
+## B2 integration follow-up
+
+Two additional defects were reproduced against the previous implementation:
+
+- A successful status-only B2 response with a malformed, unused JSON body returned
+  an unknown error. Status-only calls now return the response status without
+  parsing data, matching the common client. JSON-returning calls retain strict
+  complete-string parsing, and nonzero status codes still propagate.
+- The B2 constructor added the caller's entire node to its private executor.
+  Construction failed when that node already belonged to another executor, and
+  unrelated callbacks could run on the client's threads. Its response callback
+  group now opts out of automatic executor association and is added directly to
+  the private executor. The caller retains node execution ownership.
+
+The follow-up runs rebuilt the affected example and test packages in the
+retained isolated environments and verified all 24 installed example executables.
+Jazzy passed 128 functional cases on both the development host and the independent
+container environment. Humble passed 127 with the existing strict float32-maximum
+expected failure. Jazzy ARM64 under QEMU passed all 128 cases after rebuilding
+all 24 examples; this remains emulated execution, not native ARM hardware.
+
+| Follow-up environment | Passed | Unexpected failures | Expected failure |
+| --- | ---: | ---: | ---: |
+| Jazzy x86_64, development host | 128 | 0 | 0 |
+| Jazzy x86_64, independent container | 128 | 0 | 0 |
+| Jazzy ARM64, QEMU | 128 | 0 | 0 |
+| Humble x86_64 | 127 | 0 | 1 |
+
+The earlier 122-case matrix above remains the baseline for the
+complete archive investigation. The six new cases cover the demonstrated B2
+failures, lifecycle contracts and the two video-layout fixtures.
+
+A targeted repeat against 9,091 original stationary LowState/SportModeState
+records passed in both distributions, with identical original-record and typed
+field digests and unchanged full-file SHA-256. These are previously counted
+records, not new independent data. The message decoder and official schemas were
+unchanged, so the complete archive was not reprocessed. The functional suite also
+reran its plain DDS peer and replay regressions. Scoped Python/C++ test lint passed.
+Hosted Actions, native ARM hardware and live firmware remain unverified.
+
+The software-peer regressions cover an externally associated node, execution of
+unrelated callbacks only by the caller, two clients sharing one node, and client
+destruction/recreation. Existing wrong-ID, wrong-API, duplicate, timeout, status,
+and JSON cases remain enabled. Message definitions, QoS and topic names are
+unchanged. These tests do not qualify robot API behavior.
 
 ## Reproduction
 

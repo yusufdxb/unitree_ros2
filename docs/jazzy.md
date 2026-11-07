@@ -185,6 +185,18 @@ the functional regression package, verifies all 24 installed examples and checks
 for foreign ROS underlays in CMake caches. It also runs the existing package lint
 checks in a separate, nonblocking step and uploads their logs and JUnit artifacts
 even when checks fail.
+The workflow runs for pull requests, pushes to `master`, and manual dispatch.
+A push to a development branch alone does not trigger it. Hosted runner execution
+remains unverified; local x86_64 and ARM64/QEMU results do not establish hosted
+CI success or native ARM hardware behavior. No repository push or dispatch was
+performed for the compatibility follow-up.
+
+The functional gate includes the B2 executor ownership and status-only response
+regressions and synthetic tests that reject the incompatible recorded-video
+layout without changing the official interfaces. B2 clients spin only their
+response callback groups; applications retain responsibility for spinning other
+callbacks on the caller's node. API calls still have a five-second timeout.
+
 It does not replace the existing Foxy workflow. Foxy compatibility remains a
 separate legacy validation target; do not infer it from a Jazzy or Humble run.
 
