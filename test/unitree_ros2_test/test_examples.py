@@ -7,7 +7,7 @@ import time
 from ament_index_python.packages import get_package_prefix
 import pytest
 import rclpy
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from rclpy.serialization import deserialize_message
 from rosidl_runtime_py.utilities import get_message
 
@@ -22,7 +22,13 @@ from test_interfaces import fields, populate
      'Wireless controller'),
     ('record_bag', 'unitree_go/msg/SportModeState', 'lf/sportmodestate', 'Position'),
 ])
-def test_telemetry_examples(executable, type_name, topic, marker, tmp_path):
+# Recorded GO2 firmware offers /lowstate, /sportmodestate and /wirelesscontroller
+# as RELIABLE; cover that as well as best-effort publishers.
+@pytest.mark.parametrize('publisher_qos', [
+    qos_profile_sensor_data,
+    QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE),
+], ids=['best-effort', 'reliable-like-firmware'])
+def test_telemetry_examples(executable, type_name, topic, marker, publisher_qos, tmp_path):
     cls = get_message(type_name)
     message = populate(cls())
     safe_topic = '/unitree_test/examples/' + executable
@@ -34,7 +40,7 @@ def test_telemetry_examples(executable, type_name, topic, marker, tmp_path):
         args += ['-p', 'output:=' + str(bag_path)]
     rclpy.init()
     node = rclpy.create_node('example_regression_' + executable)
-    publisher = node.create_publisher(cls, safe_topic, qos_profile_sensor_data)
+    publisher = node.create_publisher(cls, safe_topic, publisher_qos)
     logfile = tmp_path / 'output.log'
     with logfile.open('w') as output:
         process = subprocess.Popen(args, stdout=output, stderr=subprocess.STDOUT)
