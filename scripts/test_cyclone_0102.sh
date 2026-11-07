@@ -28,13 +28,16 @@ cmake -S "$root/test/unitree_ros2_test/native" -B "$scratch/peer" \
 LD_LIBRARY_PATH="$scratch/install/lib" cmake --build "$scratch/peer" --parallel 2
 # The ROS-side API client driver comes from the normal workspace build.
 client="${UNITREE_API_CLIENT_PEER_TEST:-$root/build/unitree_ros2_test/api_client_peer_test}"
-if [[ ! -x "$client" ]]; then
-  echo "Build unitree_ros2_test with tests first, or set UNITREE_API_CLIENT_PEER_TEST" >&2
+b2_client="${UNITREE_B2_API_CLIENT_PEER_TEST:-$root/build/unitree_ros2_test/b2_api_client_peer_test}"
+if [[ ! -x "$client" || ! -x "$b2_client" ]]; then
+  echo "Build unitree_ros2_test with tests first, or set UNITREE_API_CLIENT_PEER_TEST" \
+    "and UNITREE_B2_API_CLIENT_PEER_TEST" >&2
   exit 2
 fi
 UNITREE_DDS_PEER="$scratch/peer/dds_peer" \
 UNITREE_DDS_API_SERVER="$scratch/peer/dds_api_server" \
 UNITREE_API_CLIENT_PEER_TEST="$client" \
+UNITREE_B2_API_CLIENT_PEER_TEST="$b2_client" \
 UNITREE_DDS_PEER_LIBRARY_PATH="$scratch/install/lib" \
   python3 -m pytest "$root/test/unitree_ros2_test/test_native_dds.py" \
     "$root/test/unitree_ros2_test/test_api_client_peer.py" \

@@ -6,6 +6,10 @@
  *   2002  held until 2003 arrives; 2003 is answered first (out of order)
  *   2004  reply after 800 ms (the client times out at 300 ms)
  *   2005  decoy with 2005's id and api 2004 at once, real reply after 700 ms
+ * UNITREE_DDS_API_SERVER_EXPECT (hex bit mask of api - 2001, default 1f) selects
+ * which of these must be answered before a successful exit.
+ * UNITREE_DDS_API_SERVER_REPLIES=N switches to echo mode: answer any request at
+ * once, exit cleanly after N replies (used to restart the server under a client).
  */
 #include <dds/dds.h>
 #include <inttypes.h>
@@ -77,9 +81,15 @@ int main(void)
   identity_t held;
   int have_held = 0;
   unsigned done = 0;  /* bit (api - 2001) set once that api was answered */
-  const unsigned all = 0x1f;
+  const char * expect = getenv("UNITREE_DDS_API_SERVER_EXPECT");
+  const unsigned all = expect ? (unsigned)strtoul(expect, NULL, 16) : 0x1f;
+  const char * replies_env = getenv("UNITREE_DDS_API_SERVER_REPLIES");
+  const long echo_replies = replies_env ? strtol(replies_env, NULL, 10) : 0;
+  long echoed = 0;
   const dds_time_t deadline = dds_time() + DDS_SECS(25);
-  while (dds_time() < deadline && (done != all || delayed[0].used || delayed[1].used)) {
+  while (dds_time() < deadline &&
+    (echo_replies ? echoed < echo_replies : (done != all || delayed[0].used || delayed[1].used)))
+  {
     void * samples[1] = {NULL};
     dds_sample_info_t info[1];
     int count = dds_take(reader, samples, info, 1, 1);
@@ -89,6 +99,12 @@ int main(void)
       identity_t identity = request->header_.identity_;
       fprintf(stderr, "request api=%" PRId64 " id=%" PRId64 "\n", identity.api_id_, identity.id_);
       identity_t decoy = identity;
+      if (echo_replies) {
+        respond(writer, identity, identity.api_id_, 0);
+        ++echoed;
+        dds_return_loan(reader, samples, count);
+        continue;
+      }
       switch (identity.api_id_) {
         case 2001:
           decoy.id_ = identity.id_ + 1;
@@ -134,5 +150,6 @@ int main(void)
   }
   dds_sleepfor(DDS_MSECS(500));
   dds_delete(participant);
+  if (echo_replies) {return echoed == echo_replies ? 0 : 7;}
   return done == all ? 0 : 7;
 }

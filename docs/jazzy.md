@@ -132,7 +132,15 @@ The scratch directory contains the source, build, private install and JUnit
 result. Only the peer process loads DDS 0.10.2. The ROS process continues to load
 Jazzy's DDS library. This exercises XCDR1 telemetry, nested GO and HG states,
 sport timestamps and API request/response envelopes without robot hardware.
+It also runs the generic and B2 API clients against a plain DDS API server
+(`dds_api_server.c`) that sends decoys, duplicates, out-of-order and late
+responses and is restarted under a running client.
 The Jazzy x86_64 CI job also runs this test.
+
+API discovery on a slow link can outlast a client's startup. To model that,
+`scripts/test_api_latency.sh 250ms` reruns the API server tests with added
+loopback latency. It changes the `lo` qdisc for the whole host, so it refuses to
+run unless `UNITREE_ALLOW_LO_NETEM=1` is set: use a container or disposable VM.
 
 ## Robot-facing configuration
 
@@ -201,8 +209,19 @@ layout without changing the official interfaces. B2 clients spin only their
 response callback groups; applications retain responsibility for spinning other
 callbacks on the caller's node. Their private executor uses bounded waits and an
 independent stop flag, so destroying a client immediately after construction
-cannot lose a cancellation issued before the worker starts. API calls still
-have a five-second timeout.
+cannot lose a cancellation issued before the worker starts.
+
+Both API clients publish a request only after the request reader and response
+writer are matched, within the call's timeout: requests and responses are
+volatile, so a message sent before matching is lost. The generic client keeps one
+response subscription and correlates responses by request id and API id, so
+concurrent calls may be answered in any order; late responses for timed-out
+calls are dropped. Request ids are unique within the process. Calls time out
+after five seconds by default; `SetTimeout()` changes this per client.
+Matching is observed locally only: on a high-latency link the server may not yet
+have matched the client's endpoints, so the first exchange right after discovery
+can still be lost and that call times out. Calls are not retried automatically,
+because API requests (including motion commands) are not idempotent.
 
 ### Serialized input limitation
 

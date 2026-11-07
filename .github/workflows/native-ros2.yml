@@ -95,6 +95,17 @@ jobs:
           colcon test --packages-select unitree_ros2_test --executor sequential \
             --event-handlers console_direct+ --return-code-on-test-failure \
             2>&1 | tee artifacts/test.log
+      - name: API clients under 250 ms loopback latency
+        if: matrix.arch == 'amd64'
+        run: |
+          set -eo pipefail
+          source /opt/ros/${{ matrix.ros }}/setup.bash
+          source install/local_setup.bash
+          rc=0
+          UNITREE_ALLOW_LO_NETEM=1 scripts/test_api_latency.sh 250ms \
+            artifacts/api-latency.xml 2>&1 | tee artifacts/api-latency.log || rc=$?
+          if [ "$rc" -eq 3 ]; then echo 'tc netem unavailable on this runner; skipped'; exit 0; fi
+          exit "$rc"
       - name: Report functional results
         if: always()
         run: |
