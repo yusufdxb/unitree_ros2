@@ -22,8 +22,8 @@ from test_interfaces import fields, populate
      'Wireless controller'),
     ('record_bag', 'unitree_go/msg/SportModeState', 'lf/sportmodestate', 'Position'),
 ])
-# Recorded GO2 firmware offers /lowstate, /sportmodestate and /wirelesscontroller
-# as RELIABLE; cover that as well as best-effort publishers.
+# GO2 telemetry publishers have been observed both RELIABLE (/lowstate,
+# /sportmodestate) and BEST_EFFORT (/wirelesscontroller); cover both.
 @pytest.mark.parametrize('publisher_qos', [
     qos_profile_sensor_data,
     QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE),

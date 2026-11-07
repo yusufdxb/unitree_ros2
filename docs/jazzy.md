@@ -155,10 +155,12 @@ selects `rmw_cyclonedds_cpp` and binds Cyclone DDS to the chosen interface.
 `setup_default.sh jazzy` instead allows Cyclone DDS to choose its default
 interface, which is useful only when that selection is appropriate.
 
-The telemetry examples subscribe with sensor-data (best-effort) QoS. Recorded
-GO2 firmware offers `/lowstate`, `/sportmodestate` and `/wirelesscontroller` as
-reliable; a best-effort subscription matches those publishers, and the tests cover
-both reliable and best-effort publishers. API request/response topics retain their existing Unitree message
+The telemetry examples subscribe with sensor-data (best-effort) QoS, which
+matches both reliable and best-effort publishers; the tests cover both. A recorded
+GO2 session offers `/lowstate` and `/sportmodestate` as reliable. Evidence for
+`/wirelesscontroller` conflicts: one recording shows a reliable publisher, while a
+live GO2 observation found it best-effort, which a reliable subscription would not
+match. Confirm publisher QoS on the robot with `ros2 topic info -v`. API request/response topics retain their existing Unitree message
 schemas and topic conventions. Verify QoS and the firmware's topic names for the
 specific robot. Restart a previously running ROS CLI daemon after changing RMW,
 domain or DDS configuration so discovery reflects the current environment.
