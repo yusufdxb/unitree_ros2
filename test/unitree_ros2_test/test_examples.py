@@ -1,4 +1,5 @@
 """Exercise the existing telemetry subscribers and recorder on private topics."""
+import os
 from pathlib import Path
 import signal
 import subprocess
@@ -76,3 +77,24 @@ def test_telemetry_examples(executable, type_name, topic, marker, publisher_qos,
         assert name == safe_topic
         assert timestamp > 0
         assert fields(deserialize_message(data, cls)) == fields(message)
+
+
+EXPECTED_EXAMPLES = 24
+
+
+def test_every_example_is_installed_and_fully_linked():
+    # Static check only: control examples are never executed by the test suite.
+    prefix = Path(get_package_prefix('unitree_ros2_example'))
+    executables = sorted(p for p in (prefix / 'lib/unitree_ros2_example').iterdir()
+                         if p.is_file() and os.access(p, os.X_OK))
+    assert len(executables) == EXPECTED_EXAMPLES, [p.name for p in executables]
+    distro = os.environ['ROS_DISTRO']
+    for executable in executables:
+        assert (prefix / 'bin' / executable.name).is_file(), executable.name
+        linked = subprocess.run(['ldd', str(executable)], capture_output=True, text=True,
+                                check=True).stdout
+        assert 'not found' not in linked, executable.name + '\n' + linked
+        foreign = [line for line in linked.splitlines()
+                   if '/opt/ros/' in line and '/opt/ros/' + distro + '/' not in line]
+        assert not foreign, executable.name + '\n' + '\n'.join(foreign)
+        assert '/opt/ros/' + distro + '/' in linked, executable.name
