@@ -30,6 +30,7 @@ class BaseClient {
   std::shared_ptr<rclcpp::executors::MultiThreadedExecutor> executor_;
   std::thread spin_thread_;
   std::atomic<bool> stop_requested_{false};
+  std::atomic<int64_t> timeout_ns_{std::chrono::nanoseconds(std::chrono::seconds(5)).count()};
 
   std::atomic<uint64_t> current_request_id_{0};
   std::atomic<int64_t> current_api_id_{0};
@@ -59,6 +60,11 @@ public:
     }
   }
 
+  // Per-call timeout, including DDS discovery; the default is five seconds.
+  void SetTimeout(std::chrono::nanoseconds timeout) {
+    timeout_ns_.store(timeout.count());
+  }
+
   int32_t Call(Request req, nlohmann::json& js) {
     return CallImpl(std::move(req), &js);
   }
@@ -70,19 +76,25 @@ public:
 private:
   int32_t CallImpl(Request req, nlohmann::json* js) {
     std::lock_guard<std::mutex> call_lock(call_mutex_);
+    const auto deadline = std::chrono::steady_clock::now() +
+                          std::chrono::nanoseconds(timeout_ns_.load());
     ResetState();
 
-    req.header.identity.id = unitree::common::GetSystemUptimeInNanoseconds();
+    req.header.identity.id = unitree::common::NextRequestId();
     current_api_id_.store(req.header.identity.api_id);
     current_request_id_.store(req.header.identity.id);
 
-        req_puber_->publish(req);
+    // The request and response topics are volatile: a request published
+    // before the server's reader matches, or a response published before our
+    // reader matches the server's writer, is lost. Discovery can exceed the
+    // constructor's bounded wait (slow links) and restarts after a server
+    // restart, so wait for both matches within this call's deadline.
+    WaitForMatch(deadline);
+    req_puber_->publish(req);
     std::unique_lock<std::mutex> response_lock(response_mutex_);
-    auto start_time = std::chrono::steady_clock::now();
-    const std::chrono::seconds timeout(5);
 
-    if (response_cv_.wait_for(response_lock, timeout, [this]() { 
-        return response_ready_; 
+    if (response_cv_.wait_until(response_lock, deadline, [this]() {
+        return response_ready_;
     })) {
 
         if (!received_response_) {
@@ -105,8 +117,6 @@ private:
                 return UT_ROBOT_TASK_UNKNOWN_ERROR;
             }
             *js = nlohmann::json::parse(received_response_->data);
-            auto end_time = std::chrono::steady_clock::now();
-            auto wait_duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
             return UT_ROBOT_SUCCESS;
         } catch (const nlohmann::detail::exception& e) {
             return UT_ROBOT_TASK_UNKNOWN_ERROR;
@@ -144,18 +154,26 @@ private:
     WaitForConnection();
   }
 
-  void WaitForConnection() {
-    const int max_attempts = 10;
+  // Matched DDS endpoints, not ROS graph entries: the graph can list a
+  // remote endpoint before this publisher or subscription has matched it.
+  bool Matched() const {
+    return req_puber_->get_subscription_count() > 0 &&
+           persistent_sub_->get_publisher_count() > 0;
+  }
 
-    for (int i = 0; i < max_attempts; ++i) {
-      auto request_subscribers = node_->count_subscribers(topic_name_request_);
-      auto response_publishers = node_->count_publishers(topic_name_response_);
-
-      if (request_subscribers > 0 && response_publishers > 0) {
-        break;
+  bool WaitForMatch(std::chrono::steady_clock::time_point deadline) const {
+    while (!Matched()) {
+      if (std::chrono::steady_clock::now() >= deadline) {
+        return false;
       }
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
+    return true;
+  }
+
+  // Bounded startup wait kept from the previous behaviour; Call() waits again.
+  void WaitForConnection() {
+    WaitForMatch(std::chrono::steady_clock::now() + std::chrono::milliseconds(500));
   }
 
   void OnResponseReceived(const std::shared_ptr<const Response> data) {

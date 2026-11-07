@@ -50,18 +50,6 @@ class BaseClient {
   rclcpp::Subscription<Response>::SharedPtr resp_suber_;
   std::atomic<int64_t> timeout_ns_{std::chrono::nanoseconds(std::chrono::seconds(5)).count()};
 
-  // Request ids must be unique among all clients in this process: clients on
-  // the same response topic each see every response.
-  static int64_t NextRequestId() {
-    static std::atomic<int64_t> last{0};
-    int64_t previous = last.load();
-    int64_t next = 0;
-    do {
-      next = std::max(unitree::common::GetSystemUptimeInNanoseconds(), previous + 1);
-    } while (!last.compare_exchange_weak(previous, next));
-    return next;
-  }
-
   // A request published before the server's reader is matched is lost, and a
   // response published before our reader is matched to the server's writer is
   // lost. Both are volatile topics, so wait for discovery within the deadline.
@@ -127,7 +115,7 @@ class BaseClient {
   int32_t CallImpl(Request req, nlohmann::json* js) {
     const auto deadline = std::chrono::steady_clock::now() +
                           std::chrono::nanoseconds(timeout_ns_.load());
-    req.header.identity.id = NextRequestId();
+    req.header.identity.id = unitree::common::NextRequestId();
     const Key key(req.header.identity.id, req.header.identity.api_id);
 
     std::future<Response::ConstSharedPtr> response_future;
