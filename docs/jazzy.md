@@ -251,6 +251,7 @@ the call could start or before the server was matched. `UT_ROBOT_TASK_TIMEOUT`
 time. Treat that as an unknown outcome: the server may have acted on it, may still
 receive it, and its response may be lost or late. Code that compared only against
 `UT_ROBOT_TASK_TIMEOUT` when no server is running must also handle the new value.
+`UT_ROBOT_TASK_TIMEOUT` keeps this package's value; the SDK2 timeout is 3104.
 
 Request writers keep their existing history depth: one sample for the generic
 clients, so a later call replaces an unacknowledged request, and ten for the B2

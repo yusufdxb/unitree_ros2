@@ -13,4 +13,6 @@ constexpr bool value_semantics = std::is_copy_constructible<T>::value &&
 static_assert(value_semantics<BaseClient>, "Preserve generic client value semantics");
 static_assert(value_semantics<unitree::robot::g1::LocoClient>,
               "Preserve G1 client value semantics");
+static_assert(UT_ROBOT_TASK_TIMEOUT == -1, "Preserve the published timeout value");
+static_assert(UT_ROBOT_TASK_NOT_PUBLISHED == 3102, "Match the SDK2 send-request error");
 int main() {return 0;}
