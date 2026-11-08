@@ -189,6 +189,62 @@ Start with read-only telemetry under the robot's documented safety procedure.
 Control examples can actuate hardware. Native firmware interoperability and every
 control function require separate hardware qualification before production use.
 
+## Telemetry-only GO2 session
+
+Only `read_low_state`, `read_motion_state` and `read_wireless_controller` may run
+in this session. Each subscribes to one telemetry topic and logs it. Like every
+`rclcpp` node, each also has `/rosout` and `/parameter_events` publishers and the
+standard parameter services; none has a Unitree request or command endpoint. Do
+not run `go2_robot_state_client` here: it calls `SetReportFreq` and toggles
+`sport_mode` through `ServiceSwitch`.
+
+Follow the robot's documented safety procedure, with the robot at rest and an
+operator present. The commands below connect to the robot network as a DDS
+participant, so run them only in a supervised session. From the repository root
+of a built workspace, in a clean shell:
+
+```bash
+source /opt/ros/jazzy/setup.bash
+export UNITREE_ROS_WS="$PWD"
+source setup.sh ROBOT_INTERFACE jazzy
+export ROS_DOMAIN_ID=0   # The domain your firmware uses.
+mkdir -p go2-telemetry
+python3 scripts/go2_telemetry_preflight.py --domain 0 --interface ROBOT_INTERFACE \
+  --report go2-telemetry/preflight-before.json
+```
+
+Continue only after `PREFLIGHT PASS` (exit status 0). The check starts DDS only
+after its local checks pass, then observes the graph for a bounded time. It fails if an
+example is not approved, the environment is not the expected one, a binary refers
+to another message type or a message publisher, a telemetry topic has no plain-DDS
+publisher of the expected type, or a command topic has a writer. It uses a unique
+private node with no writer and does not use the ROS daemon. The report records
+binary digests and the discovered publishers with their QoS, including
+`/wirelesscontroller`.
+
+Firmware endpoints have no ROS node name, so a plain-DDS writer on a command topic
+cannot be attributed from the graph. It may be a robot process. By default it fails
+the check. A supervisor who has confirmed that nothing else is attached to the
+robot network can accept it with `--allow-nonros-writer TOPIC=COUNT`, for the exact
+topic and count listed in the report. A different count still fails, and a writer
+belonging to a ROS node is never accepted.
+
+Run the examples for a fixed time, then repeat the check:
+
+```bash
+bin="$(ros2 pkg prefix unitree_ros2_example)/lib/unitree_ros2_example"
+for example in read_low_state read_motion_state read_wireless_controller; do
+  timeout --preserve-status -s INT 15 "$bin/$example" > "go2-telemetry/$example.log" 2>&1
+  echo "$example exit=$?"
+done
+python3 scripts/go2_telemetry_preflight.py --domain 0 --interface ROBOT_INTERFACE \
+  --report go2-telemetry/preflight-after.json
+```
+
+The check describes the graph at the time it ran. It cannot prove what a robot
+process does with a topic, and any DDS participant, including this one, sends
+discovery traffic on the domain.
+
 ## Validation matrix and limits
 
 | Function | Automated coverage | Evidence boundary |
