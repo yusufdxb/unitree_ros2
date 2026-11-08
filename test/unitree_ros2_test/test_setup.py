@@ -29,6 +29,24 @@ def test_local_source_from_other_directory():
     assert result.returncode == 0, result.stderr
 
 
+def test_local_setup_allows_more_than_ten_processes():
+    # Unicast discovery with automatic participant indexes only reaches indexes up to
+    # MaxAutoParticipantIndex, which Cyclone DDS defaults to 9: the eleventh process on
+    # the host cannot create a node. Jazzy's RMW raises it for localhost discovery;
+    # Humble's RMW uses the setup script's configuration as given.
+    count = 12
+    probe = ('import sys, time\n'
+             'import rclpy\n'
+             'rclpy.init()\n'
+             'node = rclpy.create_node("unitree_setup_probe_" + sys.argv[1])\n'
+             'print("created", flush=True)\n'
+             'time.sleep(6.0)\n')
+    result = run('source "' + str(ROOT / 'setup_local.sh') + '" ' + os.environ['ROS_DISTRO'] +
+                 ' >/dev/null || exit 9; for i in $(seq ' + str(count) + '); do '
+                 'python3 -c "$UNITREE_PROBE" "$i" & done; wait', UNITREE_PROBE=probe)
+    assert result.stdout.count('created') == count, result.stdout + result.stderr[-2000:]
+
+
 def test_reject_mixed_distribution():
     result = run('source "' + str(ROOT / 'setup_local.sh') + '" jazzy', ROS_DISTRO='humble')
     assert result.returncode != 0
