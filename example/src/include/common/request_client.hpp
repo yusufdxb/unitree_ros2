@@ -1,3 +1,34 @@
+// BSD 3-Clause License
+//
+// Copyright (c) 2016-2024 HangZhou YuShu TECHNOLOGY CO.,LTD. ("Unitree Robotics")
+// Copyright 2026 Yusuf Guenena
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// * Redistributions of source code must retain the above copyright notice, this
+//   list of conditions and the following disclaimer.
+//
+// * Redistributions in binary form must reproduce the above copyright notice,
+//   this list of conditions and the following disclaimer in the documentation
+//   and/or other materials provided with the distribution.
+//
+// * Neither the name of the copyright holder nor the names of its
+//   contributors may be used to endorse or promote products derived from
+//   this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 #pragma once
 #include <algorithm>
 #include <atomic>
@@ -42,28 +73,32 @@
 //
 // As before, the caller must spin the node passed to the constructor while
 // Call() waits, from a thread other than the one calling Call().
-namespace unitree {
-namespace ros2 {
+namespace unitree
+{
+namespace ros2
+{
 
 class RequestClient {
   using Request = unitree_api::msg::Request;
   using Response = unitree_api::msg::Response;
   using Key = std::pair<int64_t, int64_t>;  // identity.id, identity.api_id
 
-  struct PendingCalls {
+  struct PendingCalls
+  {
     std::mutex mutex;
     std::map<Key, std::promise<Response::ConstSharedPtr>> calls;
   };
 
   // Copies share the same DDS writer and response state. They must also share
   // single-flight coordination, rather than independently replacing samples.
-  struct CallControl {
+  struct CallControl
+  {
     std::atomic<int64_t> timeout_ns{
       std::chrono::nanoseconds(std::chrono::seconds(5)).count()};
     std::timed_mutex mutex;
   };
 
-  rclcpp::Node* node_;
+  rclcpp::Node * node_;
   std::string topic_name_request_;
   std::string topic_name_response_;
   rclcpp::Publisher<Request>::SharedPtr req_puber_;
@@ -82,16 +117,19 @@ class RequestClient {
   // received by the server. It is not a delivery or execution deadline.
   // Neither policy is checked when endpoints match. The lifespan is fixed and
   // does not follow SetTimeout(). A timeout does not cancel the request.
-  static rclcpp::QoS RequestQoS(size_t history) {
+  static rclcpp::QoS RequestQoS(size_t history)
+  {
     return rclcpp::QoS(history).lifespan(rclcpp::Duration(std::chrono::seconds(5)));
   }
 
   // A request published before the server's reader is matched is lost, and a
   // response published before our reader is matched to the server's writer is
   // lost. Both are volatile topics, so wait for discovery within the deadline.
-  bool WaitForMatch(std::chrono::steady_clock::time_point deadline) const {
+  bool WaitForMatch(std::chrono::steady_clock::time_point deadline) const
+  {
     while (req_puber_->get_subscription_count() == 0 ||
-           resp_suber_->get_publisher_count() == 0) {
+      resp_suber_->get_publisher_count() == 0)
+    {
       if (std::chrono::steady_clock::now() >= deadline) {
         return false;
       }
@@ -100,58 +138,64 @@ class RequestClient {
     return true;
   }
 
- public:
-  RequestClient(rclcpp::Node* node, const std::string& topic_name_request,
-             std::string topic_name_response, size_t request_history = 1)
-      : node_(node),
-        topic_name_request_(topic_name_request),
-        topic_name_response_(std::move(topic_name_response)),
-        req_puber_(node_->create_publisher<Request>(topic_name_request,
+public:
+  RequestClient(
+    rclcpp::Node * node, const std::string & topic_name_request,
+    std::string topic_name_response, size_t request_history = 1)
+  : node_(node),
+    topic_name_request_(topic_name_request),
+    topic_name_response_(std::move(topic_name_response)),
+    req_puber_(node_->create_publisher<Request>(topic_name_request,
                                                     RequestQoS(request_history))),
-        pending_(std::make_shared<PendingCalls>()) {
+    pending_(std::make_shared<PendingCalls>())
+  {
     // Preserve every response until the executor can correlate it. A finite
     // KeepLast history loses valid replies during concurrent response bursts.
     // Reliability and durability remain unchanged.
     std::weak_ptr<PendingCalls> weak_pending = pending_;
     resp_suber_ = node_->create_subscription<Response>(
         topic_name_response_, rclcpp::QoS(rclcpp::KeepAll()),
-        [weak_pending](const Response::ConstSharedPtr data) {
-          auto pending = weak_pending.lock();
-          if (!pending) {
-            return;
-          }
-          std::promise<Response::ConstSharedPtr> promise;
-          {
-            std::lock_guard<std::mutex> lock(pending->mutex);
-            auto it = pending->calls.find(
+      [weak_pending](const Response::ConstSharedPtr data) {
+        auto pending = weak_pending.lock();
+        if (!pending) {
+          return;
+        }
+        std::promise<Response::ConstSharedPtr> promise;
+        {
+          std::lock_guard<std::mutex> lock(pending->mutex);
+          auto it = pending->calls.find(
                 Key(data->header.identity.id, data->header.identity.api_id));
-            if (it == pending->calls.end()) {
-              return;  // Not ours, duplicate, or arrived after a timeout.
-            }
-            promise = std::move(it->second);
-            pending->calls.erase(it);
+          if (it == pending->calls.end()) {
+            return;    // Not ours, duplicate, or arrived after a timeout.
           }
-          promise.set_value(data);
+          promise = std::move(it->second);
+          pending->calls.erase(it);
+        }
+        promise.set_value(data);
         });
   }
 
   // Per-call timeout, including DDS discovery; the default is five seconds.
-  void SetTimeout(std::chrono::nanoseconds timeout) {
+  void SetTimeout(std::chrono::nanoseconds timeout)
+  {
     control_->timeout_ns.store(timeout.count());
   }
 
-  int32_t Call(Request req, nlohmann::json& js) {
+  int32_t Call(Request req, nlohmann::json & js)
+  {
     return CallImpl(std::move(req), &js);
   }
 
-  int32_t Call(Request req) {
+  int32_t Call(Request req)
+  {
     return CallImpl(std::move(req), nullptr);
   }
 
- private:
-  int32_t CallImpl(Request req, nlohmann::json* js) {
+private:
+  int32_t CallImpl(Request req, nlohmann::json * js)
+  {
     const auto deadline = std::chrono::steady_clock::now() +
-                          std::chrono::nanoseconds(control_->timeout_ns.load());
+      std::chrono::nanoseconds(control_->timeout_ns.load());
     // Wait for the call in flight, within this call's own deadline.
     std::unique_lock<std::timed_mutex> in_flight(control_->mutex, std::defer_lock);
     if (!in_flight.try_lock_until(deadline)) {
@@ -194,7 +238,7 @@ class RequestClient {
 
     // Keep the message alive for the whole parse; get() returns a temporary.
     const Response::ConstSharedPtr response_ptr = response_future.get();
-    const Response& response = *response_ptr;
+    const Response & response = *response_ptr;
     if (response.header.status.code != 0) {
       std::cout << "error code: " << response.header.status.code << std::endl;
       return response.header.status.code;
@@ -207,7 +251,7 @@ class RequestClient {
       }
       try {
         *js = nlohmann::json::parse(response.data);
-      } catch (const nlohmann::json::exception&) {
+      } catch (const nlohmann::json::exception &) {
         return UT_ROBOT_TASK_UNKNOWN_ERROR;
       }
     }

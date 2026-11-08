@@ -3,6 +3,7 @@
 ***********************************************************************/
 #ifndef _ROS2_SPORT_CLIENT_
 #define _ROS2_SPORT_CLIENT_
+#include <memory>
 #include <iostream>
 #include <stdexcept>
 #include "request_client.hpp"

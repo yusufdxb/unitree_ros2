@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Single-flight behaviour of an API client: at most one request of a client is
 // outstanding at the server, and a call that cannot start before its deadline
-// returns UT_ROBOT_TASK_TIMEOUT without publishing. Built for the generic client
+// returns UT_ROBOT_TASK_NOT_PUBLISHED without publishing. Built for the generic client
 // and, with UNITREE_B2_CLIENT, for the B2 client.
 //   in-flight   4 threads x 5 calls, the peer answers each request after 100 ms
 //   queued      a call waits behind an unanswered call and must time out on its
