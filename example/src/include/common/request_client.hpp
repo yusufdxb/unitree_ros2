@@ -72,16 +72,18 @@ class RequestClient {
   rclcpp::Subscription<Response>::SharedPtr resp_suber_;
   std::shared_ptr<CallControl> control_{std::make_shared<CallControl>()};
 
-  // Request writer QoS. History of one: one call is in flight, and a later
-  // call replaces a request the server has not acknowledged instead of
-  // queueing behind it. Lifespan of five seconds (the default timeout): the
-  // writer stops retransmitting a request five seconds after publishing it.
+  // Request writer QoS. The history depth is the owner's: one for the generic
+  // clients, ten for legacy query paths, as they had before. With a depth of
+  // one a later call replaces a request the server has not acknowledged; with
+  // more, earlier unacknowledged requests stay queued ahead of it. Lifespan of
+  // five seconds (the default timeout): the writer stops retransmitting a
+  // request five seconds after publishing it.
   // This cannot retract a packet already in the network or a request already
   // received by the server. It is not a delivery or execution deadline.
   // Neither policy is checked when endpoints match. The lifespan is fixed and
   // does not follow SetTimeout(). A timeout does not cancel the request.
-  static rclcpp::QoS RequestQoS() {
-    return rclcpp::QoS(1).lifespan(rclcpp::Duration(std::chrono::seconds(5)));
+  static rclcpp::QoS RequestQoS(size_t history) {
+    return rclcpp::QoS(history).lifespan(rclcpp::Duration(std::chrono::seconds(5)));
   }
 
   // A request published before the server's reader is matched is lost, and a
@@ -100,12 +102,12 @@ class RequestClient {
 
  public:
   RequestClient(rclcpp::Node* node, const std::string& topic_name_request,
-             std::string topic_name_response)
+             std::string topic_name_response, size_t request_history = 1)
       : node_(node),
         topic_name_request_(topic_name_request),
         topic_name_response_(std::move(topic_name_response)),
         req_puber_(node_->create_publisher<Request>(topic_name_request,
-                                                    RequestQoS())),
+                                                    RequestQoS(request_history))),
         pending_(std::make_shared<PendingCalls>()) {
     // Preserve every response until the executor can correlate it. A finite
     // KeepLast history loses valid replies during concurrent response bursts.

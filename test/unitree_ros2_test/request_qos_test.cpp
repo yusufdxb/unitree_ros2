@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <algorithm>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -35,17 +36,23 @@ int main(int argc, char ** argv)
     RobotStateClient client(node.get());
     const std::string request_topic =
       node->get_node_topics_interface()->resolve_topic_name("/api/robot_state/request");
-    const size_t expected_writers = 2;
+    const std::vector<size_t> expected_depths{10, 10};
 #elif defined(UNITREE_LEGACY_SPORT)
     SportClient client(node.get());
     const std::string request_topic =
       node->get_node_topics_interface()->resolve_topic_name("/api/sport/request");
-    const size_t expected_writers = 2;
+    // The motion writer keeps the latest command; queries keep their depth.
+    const std::vector<size_t> expected_depths{1, 10};
 #else
     BaseClient client(node.get(), prefix + "/request", prefix + "/response");
     const std::string request_topic = prefix + "/request";
-    const size_t expected_writers = 1;
+#ifdef UNITREE_B2_CLIENT
+    const std::vector<size_t> expected_depths{10};
+#else
+    const std::vector<size_t> expected_depths{1};
 #endif
+#endif
+    const size_t expected_writers = expected_depths.size();
     std::vector<rclcpp::TopicEndpointInfo> writers;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (writers.size() != expected_writers && std::chrono::steady_clock::now() < deadline) {
@@ -53,17 +60,20 @@ int main(int argc, char ** argv)
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     passed = writers.size() == expected_writers;
+    std::vector<size_t> depths;
     for (const auto & writer : writers) {
       const rclcpp::QoS & qos = writer.qos_profile();
       const auto lifespan = qos.lifespan().nanoseconds();
+      depths.push_back(qos.get_rmw_qos_profile().depth);
       std::cout << "reliability=" << static_cast<int>(qos.reliability()) <<
         " durability=" << static_cast<int>(qos.durability()) <<
         " lifespan_ns=" << lifespan << std::endl;
       passed = passed && qos.reliability() == rclcpp::ReliabilityPolicy::Reliable &&
         qos.durability() == rclcpp::DurabilityPolicy::Volatile &&
-        qos.get_rmw_qos_profile().depth == 1 &&
         lifespan == std::chrono::nanoseconds(std::chrono::seconds(5)).count();
     }
+    std::sort(depths.begin(), depths.end());
+    passed = passed && depths == expected_depths;
     std::cout << "request writers found: " << writers.size() << std::endl;
   }
   rclcpp::shutdown();

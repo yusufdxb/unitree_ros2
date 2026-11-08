@@ -56,7 +56,7 @@ class SportClient {
   explicit SportClient(rclcpp::Node *node)
       : node_(node),
         response_client_(std::make_shared<unitree::ros2::RequestClient>(
-          node, "/api/sport/request", "/api/sport/response")) {
+          node, "/api/sport/request", "/api/sport/response", 10)) {
     // A later command replaces an unacknowledged one, so a recovering link
     // cannot replay a backlog of old motion commands. The lifespan only bounds
     // retransmission; it is not a delivery or execution deadline.

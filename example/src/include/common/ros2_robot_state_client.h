@@ -72,9 +72,9 @@ public:
         : node_(node),
           req_puber_(node_->create_publisher<unitree_api::msg::Request>(
               "/api/robot_state/request",
-              rclcpp::QoS(1).lifespan(rclcpp::Duration(std::chrono::seconds(5))))),
+              rclcpp::QoS(10).lifespan(rclcpp::Duration(std::chrono::seconds(5))))),
           response_client_(std::make_shared<unitree::ros2::RequestClient>(
-              node, "/api/robot_state/request", "/api/robot_state/response")) {
+              node, "/api/robot_state/request", "/api/robot_state/response", 10)) {
     }
   
     int32_t ServiceList(std::vector<ServiceState>& list) {

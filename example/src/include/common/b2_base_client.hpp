@@ -144,16 +144,16 @@ private:
     }
   }
 
-  // Request writer QoS. History of one: one call is in flight, and a later
-  // call replaces a request the server has not acknowledged instead of
-  // queueing behind it. Lifespan of five seconds (the default timeout): the
-  // writer stops retransmitting a request five seconds after publishing it.
+  // Request writer QoS. These are discrete API requests, so the history keeps
+  // its depth of ten and unacknowledged requests stay queued in order. Lifespan
+  // of five seconds (the default timeout): the writer stops retransmitting a
+  // request five seconds after publishing it.
   // This cannot retract a packet already in the network or a request already
   // received by the server. It is not a delivery or execution deadline.
   // Neither policy is checked when endpoints match. The lifespan is fixed and
   // does not follow SetTimeout(). A timeout does not cancel the request.
   static rclcpp::QoS RequestQoS() {
-    return rclcpp::QoS(1).lifespan(rclcpp::Duration(std::chrono::seconds(5)));
+    return rclcpp::QoS(10).lifespan(rclcpp::Duration(std::chrono::seconds(5)));
   }
 
   void InitRosComm() {

@@ -10,7 +10,9 @@ UT_DECL_ERR(UT_ROBOT_TASK_TIMEOUT, -1, "task timeout.")
 
 UT_DECL_ERR(UT_ROBOT_TASK_UNKNOWN_ERROR, -2, "task unknown error.")
 
-UT_DECL_ERR(UT_ROBOT_TASK_NOT_PUBLISHED, -3, "task not published before its deadline.")
+// Client-side only: the value of the official SDK2 send-request error, so a
+// server status cannot be mistaken for a request that was never sent.
+UT_DECL_ERR(UT_ROBOT_TASK_NOT_PUBLISHED, 3102, "task not published before its deadline.")
 
 #define UT_PRINT_ERR(code, error)                         \
   if ((code) == (error)) {                                \

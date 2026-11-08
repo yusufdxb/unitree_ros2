@@ -242,15 +242,19 @@ or one call at a time per client, when every call must start.
 Generic client copies share the writer, response state, timeout and single-flight
 coordination. `SetTimeout()` on one copied handle updates all of those handles.
 
-`UT_ROBOT_TASK_NOT_PUBLISHED` (-3) means the client never handed the request to
-DDS, because the deadline passed before the call could start or before the server
-was matched. `UT_ROBOT_TASK_TIMEOUT` (-1) means the request was handed to DDS and
-no matching response arrived in time. Treat that as an unknown outcome: the server
-may have acted on it, may still receive it, and its response may be lost or late.
+`UT_ROBOT_TASK_NOT_PUBLISHED` (3102, the official SDK2 send-request error) means
+the client never handed the request to DDS, because the deadline passed before
+the call could start or before the server was matched. `UT_ROBOT_TASK_TIMEOUT`
+(-1) means the request was handed to DDS and no matching response arrived in
+time. Treat that as an unknown outcome: the server may have acted on it, may still
+receive it, and its response may be lost or late. Code that compared only against
+`UT_ROBOT_TASK_TIMEOUT` when no server is running must also handle the new value.
 
-Each request writer keeps a history of one sample, so a later call replaces an
-unacknowledged request instead of queueing behind it, and a lifespan of five
-seconds. The lifespan only limits how long the writer retains a sample for
+Request writers keep their existing history depth: one sample for the generic
+clients, so a later call replaces an unacknowledged request, and ten for the B2
+API client and the GO2, B2 and robot-state query and configuration paths, so
+unacknowledged requests stay queued in order. All of them have a five-second
+lifespan, which only limits how long the writer retains a sample for
 retransmission. It is not a delivery or execution deadline: it cannot retract a
 packet already delayed in the network or a request the server already received,
 it does not follow `SetTimeout()`, and a timeout does not cancel remote execution.
@@ -258,15 +262,17 @@ In fault-injection runs against a separate Cyclone DDS 0.10.2 peer, a call with 
 one-second timeout returned `UT_ROBOT_TASK_TIMEOUT` and the peer still received
 the request after a two-second outage, and after six seconds of network delay.
 
-`SportClient` motion methods and `RobotStateClient::SetReportFreq` are
-fire-and-forget and use the same history and lifespan. With the depth of ten used
-previously, a three-second outage replayed ten queued commands in order on
-recovery; with a depth of one only the latest is retransmitted. The cost is that
-under packet loss a command followed closely by another can be replaced before it
-is delivered. At 20% simulated loss, 151 of 200 commands sent 20 ms apart arrived
-(189 with a depth of ten) and 38 of 40 sent 200 ms apart arrived (40 with a depth
-of ten). The latest command arrived in every run. Use a request/response call when
-a command must be acknowledged.
+`SportClient` motion methods use one writer with a depth of one and the same
+lifespan, favouring the latest command. These settings reduce stale delivery but
+cannot guarantee that an old command is never executed. With a depth of ten, a
+three-second outage replayed ten queued commands in order on recovery; with a
+depth of one only the latest was retransmitted. The cost is that under packet loss
+a command followed closely by another can be replaced before it is delivered, so
+space out one-shot actions and confirm the result where that matters. At 20%
+simulated loss, 151 of 200 commands sent 20 ms apart arrived (189 with a depth of
+ten) and 38 of 40 sent 200 ms apart arrived (40 with a depth of ten). The latest
+command arrived in every run. Low-level command topics such as `/lowcmd` keep
+their existing publishers and are not affected by these settings.
 
 Matching is observed locally only: on a high-latency link the server may not yet
 have matched the client's endpoints, so the first exchange right after discovery
