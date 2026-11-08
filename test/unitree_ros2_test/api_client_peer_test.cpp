@@ -3,9 +3,9 @@
 // Drive an API client against the separate plain DDS server in dds_api_server.c.
 // Built twice: the generic client (common/base_client.hpp) and, with
 // UNITREE_B2_CLIENT, the B2 client (common/b2_base_client.hpp).
-//   scenario   first call with no settle time, decoys, duplicates, a late
-//              response during the next call, and (generic client only, B2
-//              serializes calls) concurrent calls answered out of order
+//   scenario   first call with no settle time, decoys, duplicates and a late
+//              response during the next call (both clients serialize calls;
+//              see api_single_flight_test.cpp)
 //   reconnect  the server exits and a new one starts under the same client
 #include <atomic>
 #include <chrono>
@@ -50,22 +50,7 @@ void scenario(BaseClient & client)
   expect(call(client, 2001, first) == UT_ROBOT_SUCCESS, "first call right after construction");
   expect(genuine(first, 2001), "first call ignores decoys: " + first.dump());
 
-#ifndef UNITREE_B2_CLIENT
-  // 2. Two concurrent calls answered in reverse order.
-  nlohmann::json held, second;
-  int32_t held_result = -1, second_result = -1;
-  std::thread held_call([&]() {held_result = call(client, 2002, held);});
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  std::thread second_call([&]() {second_result = call(client, 2003, second);});
-  held_call.join();
-  second_call.join();
-  expect(held_result == UT_ROBOT_SUCCESS && genuine(held, 2002),
-    "held call gets its own out-of-order response: " + held.dump());
-  expect(second_result == UT_ROBOT_SUCCESS && genuine(second, 2003),
-    "later call answered first: " + second.dump());
-#endif
-
-  // 3. A response delivered after its call timed out must not complete or
+  // 2. A response delivered after its call timed out must not complete or
   //    corrupt the next call, which is pending when the late response arrives.
   nlohmann::json late = {{"untouched", true}};
   client.SetTimeout(std::chrono::milliseconds(300));
@@ -95,7 +80,7 @@ void reconnect(BaseClient & client)
     const int32_t result = call(client, 2001, js);
     if (result == UT_ROBOT_SUCCESS) {
       reconnected = genuine(js, 2001);
-    } else if (result == UT_ROBOT_TASK_TIMEOUT) {
+    } else if (result == UT_ROBOT_TASK_NOT_PUBLISHED || result == UT_ROBOT_TASK_TIMEOUT) {
       ++timeouts;
     } else {
       expect(false, "unexpected result " + std::to_string(result));

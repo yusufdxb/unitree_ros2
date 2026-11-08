@@ -37,9 +37,9 @@ def stop(process):
 @pytest.mark.parametrize('client', sorted(CLIENTS))
 def test_api_client_against_plain_dds_server(client):
     namespace = 'unitree_test/api_' + uuid.uuid4().hex
-    # B2 serializes calls, so it skips the concurrent out-of-order pair (2002/2003).
-    server_env, client_env = environments(
-        namespace, UNITREE_DDS_API_SERVER_EXPECT='1f' if client == 'generic' else '19')
+    # Both clients serialize calls, so neither sends the concurrent out-of-order
+    # pair (2002/2003) that the server can still exercise.
+    server_env, client_env = environments(namespace, UNITREE_DDS_API_SERVER_EXPECT='19')
     server = start_server(server_env)
     try:
         # Started together on purpose: the client must not depend on settle time.

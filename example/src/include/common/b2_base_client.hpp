@@ -9,6 +9,13 @@
 #include <condition_variable>
 
 #include <rclcpp/rclcpp.hpp>
+// Galactic and later ship rclcpp/version.h together with callback groups that
+// are not added to executors automatically and Executor::add_callback_group().
+// Foxy has neither; there the client keeps upstream's behaviour of spinning the
+// whole node in its private executor, so the caller must not spin that node too.
+#if __has_include(<rclcpp/version.h>)
+#define UNITREE_B2_CLIENT_OWN_CALLBACK_GROUP 1
+#endif
 #include "nlohmann/json.hpp"
 #include "time_tools.hpp"
 #include "unitree_api/msg/request.hpp"
@@ -34,7 +41,8 @@ class BaseClient {
 
   std::atomic<uint64_t> current_request_id_{0};
   std::atomic<int64_t> current_api_id_{0};
-  std::mutex call_mutex_;
+  // Held for the whole of a call: one request in flight per client.
+  std::timed_mutex call_mutex_;
   std::mutex response_mutex_;
   std::condition_variable response_cv_;
   std::shared_ptr<const Response> received_response_;
@@ -75,9 +83,14 @@ public:
 
 private:
   int32_t CallImpl(Request req, nlohmann::json* js) {
-    std::lock_guard<std::mutex> call_lock(call_mutex_);
     const auto deadline = std::chrono::steady_clock::now() +
                           std::chrono::nanoseconds(timeout_ns_.load());
+    // Calls are serialized. A call waits for the call in flight only until its
+    // own deadline and then returns UT_ROBOT_TASK_NOT_PUBLISHED.
+    std::unique_lock<std::timed_mutex> call_lock(call_mutex_, std::defer_lock);
+    if (!call_lock.try_lock_until(deadline)) {
+      return UT_ROBOT_TASK_NOT_PUBLISHED;
+    }
     ResetState();
 
     req.header.identity.id = unitree::common::NextRequestId();
@@ -89,7 +102,11 @@ private:
     // reader matches the server's writer, is lost. Discovery can exceed the
     // constructor's bounded wait (slow links) and restarts after a server
     // restart, so wait for both matches within this call's deadline.
-    WaitForMatch(deadline);
+    if (!WaitForMatch(deadline) || std::chrono::steady_clock::now() >= deadline) {
+      // Check immediately before publication. Scheduling and middleware
+      // blocking cannot be bounded by this application-side check.
+      return UT_ROBOT_TASK_NOT_PUBLISHED;
+    }
     req_puber_->publish(req);
     std::unique_lock<std::mutex> response_lock(response_mutex_);
 
@@ -122,15 +139,32 @@ private:
             return UT_ROBOT_TASK_UNKNOWN_ERROR;
         }
     } else {
+        // Published without a response in time: the outcome is unknown.
         return UT_ROBOT_TASK_TIMEOUT;
     }
   }
 
+  // Request writer QoS. History of one: one call is in flight, and a later
+  // call replaces a request the server has not acknowledged instead of
+  // queueing behind it. Lifespan of five seconds (the default timeout): the
+  // writer stops retransmitting a request five seconds after publishing it.
+  // This cannot retract a packet already in the network or a request already
+  // received by the server. It is not a delivery or execution deadline.
+  // Neither policy is checked when endpoints match. The lifespan is fixed and
+  // does not follow SetTimeout(). A timeout does not cancel the request.
+  static rclcpp::QoS RequestQoS() {
+    return rclcpp::QoS(1).lifespan(rclcpp::Duration(std::chrono::seconds(5)));
+  }
+
   void InitRosComm() {
-    req_puber_ = node_->create_publisher<Request>(topic_name_request_, rclcpp::QoS(10));
+    req_puber_ = node_->create_publisher<Request>(topic_name_request_, RequestQoS());
     // Only the response callback belongs to the private executor. The caller
     // may already spin this node, or add other B2 clients to the same node.
+#ifdef UNITREE_B2_CLIENT_OWN_CALLBACK_GROUP
     sub_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::Reentrant, false);
+#else
+    sub_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+#endif
     sub_opts_.callback_group = sub_group_;
 
     persistent_sub_ = node_->create_subscription<Response>(
@@ -141,7 +175,11 @@ private:
         sub_opts_);
 
     executor_ = std::make_shared<rclcpp::executors::MultiThreadedExecutor>();
+#ifdef UNITREE_B2_CLIENT_OWN_CALLBACK_GROUP
     executor_->add_callback_group(sub_group_, node_->get_node_base_interface());
+#else
+    executor_->add_node(node_->get_node_base_interface());
+#endif
     spin_thread_ = std::thread([this]() {
       // cancel() can precede the thread entering spin(), which resets the
       // executor's spinning flag. Bound each wait and retain our stop request

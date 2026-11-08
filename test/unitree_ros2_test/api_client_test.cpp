@@ -5,6 +5,7 @@
 #include <chrono>
 #include <exception>
 #include <iostream>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -14,6 +15,31 @@ int main(int argc, char ** argv)
 {
   rclcpp::init(argc, argv);
   const std::string mode = argc > 1 ? argv[1] : "success";
+  if (mode == "unique-ids") {
+    // Every client on a response topic sees every response and correlates it by
+    // (identity.id, api_id), so request ids must never repeat within a process.
+    std::vector<std::vector<int64_t>> ids(4);
+    std::vector<std::thread> threads;
+    for (auto & thread_ids : ids) {
+      threads.emplace_back([&thread_ids]() {
+          for (int i = 0; i < 20000; ++i) {
+            thread_ids.push_back(unitree::common::NextRequestId());
+          }
+        });
+    }
+    for (auto & thread : threads) {thread.join();}
+    std::set<int64_t> unique;
+    bool increasing = true;
+    for (const auto & thread_ids : ids) {
+      for (size_t i = 1; i < thread_ids.size(); ++i) {
+        increasing = increasing && thread_ids[i] > thread_ids[i - 1];
+      }
+      unique.insert(thread_ids.begin(), thread_ids.end());
+    }
+    std::cout << "unique-ids: " << unique.size() << " unique, increasing=" << increasing << std::endl;
+    rclcpp::shutdown();
+    return unique.size() == 80000 && increasing ? 0 : 1;
+  }
   auto node = std::make_shared<rclcpp::Node>("unitree_api_client_test");
   auto server = std::make_shared<rclcpp::Node>("unitree_api_mock");
   auto publisher = server->create_publisher<unitree_api::msg::Response>(
