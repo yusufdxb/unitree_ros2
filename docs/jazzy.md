@@ -228,7 +228,9 @@ volatile, so a message sent before matching is lost. A call whose deadline passe
 first returns `UT_ROBOT_TASK_NOT_PUBLISHED` without publishing. Each client keeps one
 response subscription and correlates responses by request id and API id; late
 responses for timed-out calls, duplicates and other clients' responses are
-dropped. Request ids are unique within the process. Calls time out after five
+dropped. The generic client's response reader keeps the latest 1000 samples, which
+bounds what is retained while the node is not being spun. Request ids are unique
+within the process. Calls time out after five
 seconds by default; `SetTimeout()` changes this per client. Calls are not retried
 automatically, because API requests (including motion commands) are not
 idempotent.

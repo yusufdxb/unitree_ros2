@@ -74,6 +74,13 @@ int main(int argc, char ** argv)
     }
     std::sort(depths.begin(), depths.end());
     passed = passed && depths == expected_depths;
+#if !defined(UNITREE_ROBOT_STATE) && !defined(UNITREE_LEGACY_SPORT) && !defined(UNITREE_B2_CLIENT)
+    // The response reader must not retain samples without limit when not spun.
+    const auto readers = node->get_subscriptions_info_by_topic(prefix + "/response");
+    passed = passed && readers.size() == 1 &&
+      readers[0].qos_profile().history() == rclcpp::HistoryPolicy::KeepLast &&
+      readers[0].qos_profile().get_rmw_qos_profile().depth == 1000;
+#endif
     std::cout << "request writers found: " << writers.size() << std::endl;
   }
   rclcpp::shutdown();

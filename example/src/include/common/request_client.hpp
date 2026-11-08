@@ -149,12 +149,15 @@ public:
                                                     RequestQoS(request_history))),
     pending_(std::make_shared<PendingCalls>())
   {
-    // Preserve every response until the executor can correlate it. A finite
-    // KeepLast history loses valid replies during concurrent response bursts.
-    // Reliability and durability remain unchanged.
+    // This reader lives as long as the client and receives every response on
+    // the shared topic, whether or not the node is being spun. The depth holds
+    // concurrent bursts until the executor can correlate them and bounds what an
+    // idle or stalled executor retains. The oldest sample is dropped first, and
+    // a pending call's response is the newest. Reliability and durability
+    // remain unchanged.
     std::weak_ptr<PendingCalls> weak_pending = pending_;
     resp_suber_ = node_->create_subscription<Response>(
-        topic_name_response_, rclcpp::QoS(rclcpp::KeepAll()),
+        topic_name_response_, rclcpp::QoS(1000),
       [weak_pending](const Response::ConstSharedPtr data) {
         auto pending = weak_pending.lock();
         if (!pending) {
