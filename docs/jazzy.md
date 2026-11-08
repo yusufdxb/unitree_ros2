@@ -66,7 +66,9 @@ colcon test-result --test-result-base build/unitree_ros2_test --all --verbose
 
 `setup_local.sh` selects Cyclone DDS, loopback networking, unicast discovery and
 domain 173 unless `ROS_DOMAIN_ID` is already set. It explicitly selects automatic
-DDS participant indexes so unicast discovery also works with Humble middleware. It does not discover a robot
+DDS participant indexes so unicast discovery also works with Humble middleware, and allows
+indexes up to 32 (33 ROS processes on the host, as Jazzy does for localhost discovery);
+Cyclone DDS otherwise stops at 10. It does not discover a robot
 interface. The automatic tests use telemetry or private test topics. They do not
 publish motion commands or change a robot control mode.
 
@@ -117,6 +119,16 @@ exact counts and matching semantic digests, and verifies unchanged source file
 hashes. Player errors fail the check even when the player exits successfully.
 No command topic or `/clock` is replayed. MCAP timed playback is not implemented;
 the offline field checker can read MCAP when its storage plugin is installed.
+
+To compare decoding between distributions, run the same read-only recording in
+each environment with a different report path, then compare each topic's
+`source_records_sha256`, `fields_sha256`, counts and errors:
+
+```bash
+python3 test/unitree_ros2_test/compare_bags.py /path/to/recording.db3 \
+  --standard-type sensor_msgs/msg/Imu \
+  --standard-type nav_msgs/msg/Odometry --report /path/to/results/jazzy.json
+```
 
 ## Cyclone DDS version interoperability
 
@@ -186,7 +198,7 @@ control function require separate hardware qualification before production use.
 | ROS publisher/subscriber transport | Isolated Cyclone DDS tests | ROS-level communication on loopback |
 | Native DDS and API envelopes | Plain DDS peer generated from official IDL | Software peer interoperability, not a robot |
 | External ROS bags | Explicitly supplied offline Unitree recordings | Dataset-specific field checks and recorded schema incompatibilities |
-| Jazzy x86_64 | Native Ubuntu 24.04 CI job | Runner results are required before claiming CI success |
+| Jazzy x86_64 | Native Ubuntu 24.04 CI job | Hosted runners only; no robot deployment is tested |
 | Jazzy ARM64 | Native `ubuntu-24.04-arm` CI job | No emulation; no ARM robot deployment is tested |
 | Humble x86_64 | Native Ubuntu 22.04 regression job | Uses Humble's own middleware and dependencies |
 | Actual robot firmware and control | Separate hardware validation required | Not established by CI or bag replay |
@@ -198,30 +210,79 @@ for foreign ROS underlays in CMake caches. It also runs the existing package lin
 checks in a separate, nonblocking step and uploads their logs and JUnit artifacts
 even when checks fail.
 The workflow runs for pull requests, pushes to `master`, and manual dispatch.
-A push to a development branch alone does not trigger it. Hosted runner execution
-remains unverified; local x86_64 and ARM64/QEMU results do not establish hosted
-CI success or native ARM hardware behavior. No repository push or dispatch was
-performed for the compatibility follow-up.
+A push to a development branch alone does not trigger it.
 
 The functional gate includes the B2 executor ownership and status-only response
 regressions and synthetic tests that reject the incompatible recorded-video
-layout without changing the official interfaces. B2 clients spin only their
+layout without changing the official interfaces. On Galactic and later, B2 clients spin only their
 response callback groups; applications retain responsibility for spinning other
-callbacks on the caller's node. Their private executor uses bounded waits and an
+callbacks on the caller's node. On Foxy, which lacks the callback-group executor
+API, a B2 client spins the whole node, as upstream did, and the caller must not
+spin that node itself. Their private executor uses bounded waits and an
 independent stop flag, so destroying a client immediately after construction
 cannot lose a cancellation issued before the worker starts.
 
 Both API clients publish a request only after the request reader and response
 writer are matched, within the call's timeout: requests and responses are
-volatile, so a message sent before matching is lost. The generic client keeps one
-response subscription and correlates responses by request id and API id, so
-concurrent calls may be answered in any order; late responses for timed-out
-calls are dropped. Request ids are unique within the process. Calls time out
-after five seconds by default; `SetTimeout()` changes this per client.
+volatile, so a message sent before matching is lost. A call whose deadline passes
+first returns `UT_ROBOT_TASK_NOT_PUBLISHED` without publishing. Each client keeps one
+response subscription and correlates responses by request id and API id; late
+responses for timed-out calls, duplicates and other clients' responses are
+dropped. Request ids are unique within the process. Calls time out after five
+seconds by default; `SetTimeout()` changes this per client. Calls are not retried
+automatically, because API requests (including motion commands) are not
+idempotent.
+
+Each client has one call in flight. Concurrent callers wait for it, but only until
+their own deadline, which starts when `Call()` is entered: a caller that cannot
+start in time gets `UT_ROBOT_TASK_NOT_PUBLISHED` and nothing is published. Waiting
+callers are not served in a guaranteed order, so under sustained contention one
+caller can time out while others proceed. Use one client per independent caller,
+or one call at a time per client, when every call must start.
+Generic client copies share the writer, response state, timeout and single-flight
+coordination. `SetTimeout()` on one copied handle updates all of those handles.
+
+`UT_ROBOT_TASK_NOT_PUBLISHED` (-3) means the client never handed the request to
+DDS, because the deadline passed before the call could start or before the server
+was matched. `UT_ROBOT_TASK_TIMEOUT` (-1) means the request was handed to DDS and
+no matching response arrived in time. Treat that as an unknown outcome: the server
+may have acted on it, may still receive it, and its response may be lost or late.
+
+Each request writer keeps a history of one sample, so a later call replaces an
+unacknowledged request instead of queueing behind it, and a lifespan of five
+seconds. The lifespan only limits how long the writer retains a sample for
+retransmission. It is not a delivery or execution deadline: it cannot retract a
+packet already delayed in the network or a request the server already received,
+it does not follow `SetTimeout()`, and a timeout does not cancel remote execution.
+In fault-injection runs against a separate Cyclone DDS 0.10.2 peer, a call with a
+one-second timeout returned `UT_ROBOT_TASK_TIMEOUT` and the peer still received
+the request after a two-second outage, and after six seconds of network delay.
+
+`SportClient` motion methods and `RobotStateClient::SetReportFreq` are
+fire-and-forget and use the same history and lifespan. With the depth of ten used
+previously, a three-second outage replayed ten queued commands in order on
+recovery; with a depth of one only the latest is retransmitted. The cost is that
+under packet loss a command followed closely by another can be replaced before it
+is delivered. At 20% simulated loss, 151 of 200 commands sent 20 ms apart arrived
+(189 with a depth of ten) and 38 of 40 sent 200 ms apart arrived (40 with a depth
+of ten). The latest command arrived in every run. Use a request/response call when
+a command must be acknowledged.
+
 Matching is observed locally only: on a high-latency link the server may not yet
 have matched the client's endpoints, so the first exchange right after discovery
-can still be lost and that call times out. Calls are not retried automatically,
-because API requests (including motion commands) are not idempotent.
+can still be lost and that call times out.
+
+Single-flight calls have no priority or cancellation mechanism. A stop or damp
+request can wait behind an unanswered query on the same client. Do not use this
+queue as an emergency-stop channel. The prepublication deadline check prevents
+sending when expiry is observed, but cannot impose a hard deadline on process
+scheduling, serialization or a blocking middleware publication.
+
+Create API clients before their node is spun and destroy them after spinning
+has stopped, as the examples do. Jazzy's `rcl` keeps an unlocked per-node
+type-description cache: creating endpoints on a node while an executor thread
+destroys endpoints of the same type on it can corrupt that cache and crash the
+process. Humble has no such cache.
 
 ### Serialized input limitation
 
@@ -242,7 +303,7 @@ the recorder serializes typed messages; they do not accept arbitrary buffers
 through an application-level deserialization API. Fixing validation inside the
 packaged middleware remains outside this repository's message definitions.
 
-It does not replace the existing Foxy workflow. Foxy compatibility remains a
+The native workflow does not replace the existing Foxy workflow. Foxy compatibility remains a
 separate legacy validation target; do not infer it from a Jazzy or Humble run.
 
 To run all existing checks locally, including example lint, use:
@@ -260,7 +321,3 @@ remain visible in CI as a separate nonblocking result. A passing functional CI
 gate does not mean the full lint suite is green. This preserves the existing
 checks without making unrelated upstream formatting debt a functional gate.
 The functional tests in unitree_ros2_test report their results separately.
-
-See the [recorded-data regression results](validation/jazzy-rosbag-regression.md)
-for the dataset inventory, independent Humble/Jazzy comparisons, measured replay,
-fault-injection limits, and coverage of individual interfaces and examples.
