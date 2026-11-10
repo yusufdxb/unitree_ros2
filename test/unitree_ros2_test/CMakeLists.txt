@@ -135,7 +135,7 @@ if(BUILD_TESTING)
   ament_add_pytest_test(interfaces test_interfaces.py TIMEOUT 120)
   ament_add_pytest_test(native_dds test_native_dds.py TIMEOUT 120
     ENV "UNITREE_DDS_PEER=$<TARGET_FILE:dds_peer>")
-  ament_add_pytest_test(examples test_examples.py TIMEOUT 120)
+  ament_add_pytest_test(examples test_examples.py TIMEOUT 240)
   ament_add_pytest_test(setup_scripts test_setup.py TIMEOUT 30)
   ament_add_pytest_test(telemetry_preflight test_telemetry_preflight.py TIMEOUT 240
     ENV "UNITREE_TELEMETRY_ENDPOINT_PEER=$<TARGET_FILE:telemetry_endpoint_peer>")

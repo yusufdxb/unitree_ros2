@@ -12,7 +12,8 @@ scratch="$(cd "$1" && pwd)"
 touch "$scratch/COLCON_IGNORE"
 revision=aaf69cb56c9d5ed63d8b284008ec3a8ab999bec1
 sdk="$scratch/unitree_sdk2"
-if [[ ! -d "$sdk/.git" ]]; then
+if [[ "$(git -C "$sdk" rev-parse -q --verify HEAD 2>/dev/null)" != "$revision" ]]; then
+  rm -rf "$sdk"
   git init -q "$sdk"
   git -C "$sdk" fetch -q --depth 1 https://github.com/unitreerobotics/unitree_sdk2.git "$revision"
   git -C "$sdk" checkout -q FETCH_HEAD

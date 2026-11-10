@@ -43,12 +43,15 @@ What the columns rest on:
   field-by-field exchange with SDK2 types below.
 - **SDK2 types**: `scripts/test_sdk2_peer.sh` builds a peer from
   `unitree_sdk2`'s own generated C++ types and its bundled Cyclone DDS 0.10.2,
-  with no ROS IDL. For 17 types of both families (LowState, LowCmd, IMU, motor,
-  hand, battery and board states, sport state, LiDAR state, wireless controller,
-  `MotorCmds`, `Point32`) it checks that an SDK2 sample reaches ROS with every
-  field equal, that a ROS sample reaches SDK2 with the named fields equal, and
-  that SDK2's echo of it is unchanged. This is evidence about a message family,
-  not about any one robot.
+  with no ROS IDL. It covers 17 types of both families (LowState, LowCmd, IMU,
+  motor, hand, battery and board states, sport state, LiDAR state, wireless
+  controller, `MotorCmds`, `Point32`). An SDK2 sample, with every scalar and the
+  ends of every array filled, reaches ROS with all fields equal to it or to
+  their defaults. For the 16 types SDK2 accepts from ROS (all but
+  `SportModeState`, see below), a fully populated ROS sample reaches SDK2 with
+  those named fields equal and SDK2's echo of it comes back unchanged.
+  `unitree_api` is covered by the plain DDS peer, not by this one. This is
+  evidence about a message family, not about any one robot.
 - **MuJoCo bridge**: Unitree's own `unitree_mujoco` Python bridge (1eb6642, with
   `unitree_sdk2_python` 814556d and cyclonedds 0.10.2) published LowState for
   the official models on private topics. ROS received all 20 or 35 motor slots
@@ -57,12 +60,13 @@ What the columns rest on:
   printed the matching slots. The official Python bridge selects `unitree_hg`
   only for `g1`, so it cannot publish H1-2 or H2; with the family forced to
   `unitree_hg`, their models published 27 and 31 slots that ROS received
-  unchanged. The simulator sets `mode_machine` to 0. This harness is a local
-  check, not part of CI.
+  unchanged. The simulator sets `mode_machine` to 0. This was a local check on
+  x86_64 Jazzy; the harness is not part of this repository or CI.
 - **Recorded data and firmware**: only GO2. Two offline GO2 recordings, and a
   read-only GO2 session on 2026-11-10 in which `/lowstate` and
   `/lf/sportmodestate` from firmware were decoded by `read_low_state` and
-  `read_motion_state`. No command was sent.
+  `read_motion_state`, built from the commit this work starts from. No command
+  was sent.
 - **Command behavior**: no robot, including GO2, has had a command or API call
   verified by this work.
 
@@ -120,8 +124,10 @@ ros2 run unitree_ros2_example read_wireless_controller
 `b2`, `b2w`, `h1` for `read_low_state`; `g1` (default), `h1_2`, `h2`, `r1`
 for `read_low_state_hg`. A model of the other family, or an unknown name, is
 rejected with exit status 1 before any subscription is created. These examples
-create only subscriptions (plus the `/rosout` and `/parameter_events`
-publishers every `rclcpp` node has); the test suite checks this.
+subscribe only to their telemetry topics, publish nothing but the `/rosout` and
+`/parameter_events` topics every `rclcpp` node has, and create no service
+clients; the test suite checks this from the ROS graph. Like every `rclcpp`
+node they also offer the standard parameter services.
 
 `ros2 topic echo /lowstate unitree_hg/msg/LowState` works as well. Check the
 publisher QoS with `ros2 topic info -v` before relying on a reliable
@@ -152,7 +158,8 @@ None is executed by the test suite.
 
 These are the differences between this repository's interfaces and the
 `unitree_sdk2` C++ and Python definitions. None changes the wire layout of the
-fields ROS defines; the SDK2 peer tests check each of them.
+fields ROS defines. The SDK2 peer tests check each of them except
+`Response.binary`.
 
 - `unitree_go` IMU, motor, battery and board temperatures, and
   `unitree_api/Response.binary`, are `int8` in ROS and `uint8` in SDK2. The bytes

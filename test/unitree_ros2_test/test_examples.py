@@ -165,7 +165,8 @@ def test_hg_reader_reads_secondary_imu_on_request(tmp_path):
     imu = populate(get_message('unitree_hg/msg/IMUState')())
     topic = '/unitree_test/models/secondary_imu'
     code, log, _ = run_subscriber(
-        'read_low_state_hg', ['-p', 'secondary_imu:=true', '-r', 'secondary_imu:=' + topic],
+        'read_low_state_hg', ['-p', 'secondary_imu:=true', '-r', 'secondary_imu:=' + topic,
+                              '-r', 'lowstate:=/unitree_test/models/secondary_imu_lowstate'],
         {topic: (imu, qos_profile_sensor_data)}, tmp_path)
     assert code == 0, log
     assert 'Secondary IMU -- roll: {:f}'.format(imu.rpy[0]) in log, log
@@ -179,7 +180,8 @@ def test_hg_reader_reads_secondary_imu_on_request(tmp_path):
     ('read_wireless_controller', [], {'wirelesscontroller'}),
 ])
 def test_telemetry_examples_are_subscriber_only(executable, arguments, subscribed, tmp_path):
-    # Robot topics are remapped away; the graph is inspected before anything is sent.
+    # Robot topics are remapped away. The graph is inspected once the subscriptions
+    # exist; the examples create no endpoints later.
     name = 'endpoint_probe_' + executable
     remaps = []
     for topic in sorted(subscribed):

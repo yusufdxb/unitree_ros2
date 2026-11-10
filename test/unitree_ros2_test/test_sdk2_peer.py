@@ -4,7 +4,8 @@ Run through scripts/test_sdk2_peer.sh, which builds the peer from a pinned
 unitree_sdk2 revision. Each type is checked in three ways: a sample the SDK2
 peer filled reaches ROS with every field equal to what the peer reports; a ROS
 sample reaches the peer with the named fields it prints; and the peer's echo of
-the ROS sample comes back unchanged.
+the ROS sample comes back unchanged. The peer fills and prints a fixed set of
+named fields (array ends, every scalar); the rest stay at their defaults.
 """
 import numbers
 import os
@@ -173,6 +174,8 @@ def exchange():
                 settle = time.monotonic() + 3
             if settle is not None and time.monotonic() > settle:
                 break
+        matched = {key: publisher.get_subscription_count()
+                   for key, publisher in publishers.items()}
     finally:
         process.terminate()
         process.wait(timeout=10)
@@ -188,7 +191,8 @@ def exchange():
             key, entries = parse(line)
             received.setdefault(key, entries)
     return {'sent': sent, 'echoes': echoes, 'origins': origins, 'origin_lines': origin_lines,
-            'received': received, 'output': ''.join(lines), 'returncode': process.returncode}
+            'received': received, 'output': ''.join(lines), 'returncode': process.returncode,
+            'matched': matched}
 
 
 def test_peer_ran_and_stopped_cleanly(exchange):
@@ -215,6 +219,10 @@ def test_sdk2_sample_reaches_ros_field_for_field(key, exchange):
 @pytest.mark.parametrize('key', list(TYPES))
 def test_ros_sample_reaches_sdk2_by_field_name(key, exchange):
     if key in NOT_DELIVERED_TO_SDK2:
+        # Matched, offered for at least 3 s, and rejected by SDK2's deserializer.
+        assert exchange['matched'][key], 'SDK2 reader never matched ' + key
+        assert any('/in/' + key + '/' in line and 'failed' in line
+                   for line in exchange['output'].splitlines()), exchange['output']
         assert key not in exchange['received'], exchange['received'].get(key)
         assert not exchange['echoes'][key]
         return

@@ -32,6 +32,9 @@ class LowStateSuber : public rclcpp::Node {
           unitree_ros2_example::RobotModelNames(MessageFamily::kGo) + ")");
     }
     motor_count_ = model->motor_count;
+    if (motor_count_ > static_cast<int>(sizeof(motor_) / sizeof(motor_[0]))) {
+      throw std::logic_error("robot model exceeds the LowState motor slots");
+    }
     if (declare_parameter<bool>("secondary_imu", false)) {
       imu_suber_ = this->create_subscription<unitree_hg::msg::IMUState>(
           "secondary_imu", rclcpp::SensorDataQoS(),
