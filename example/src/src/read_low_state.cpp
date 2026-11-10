@@ -1,7 +1,12 @@
 /**
  * This example demonstrates how to use ROS2 to receive low states of unitree
- *go2 robot
+ * robots that publish unitree_go/msg/LowState: go2 (default), go2w, b2, b2w
+ * and h1. Select the model with --ros-args -p robot:=NAME. It only subscribes.
  **/
+#include <stdexcept>
+#include <string>
+
+#include "common/robot_models.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "unitree_go/msg/imu_state.hpp"
 #include "unitree_go/msg/low_state.hpp"
@@ -17,6 +22,17 @@ constexpr bool HIGH_FREQ = true;
 class LowStateSuber : public rclcpp::Node {
  public:
   LowStateSuber() : Node("low_state_suber") {
+    using unitree_ros2_example::MessageFamily;
+    const auto robot = declare_parameter<std::string>("robot", "go2");
+    const auto *model = unitree_ros2_example::FindRobotModel(robot);
+    if (model == nullptr || model->family != MessageFamily::kGo) {
+      throw std::invalid_argument(
+          "robot '" + robot + "' does not publish unitree_go/msg/LowState; use " +
+          unitree_ros2_example::RobotModelNames(MessageFamily::kGo) +
+          " (read_low_state_hg handles " +
+          unitree_ros2_example::RobotModelNames(MessageFamily::kHg) + ")");
+    }
+    motor_count_ = model->motor_count;
     // suber is set to subscribe "/lowcmd" or  "lf/lowstate" (low frequencies)
     // topic
     const auto *topic_name = "hf/lowstate";
@@ -62,7 +78,7 @@ class LowStateSuber : public rclcpp::Node {
       // ddq: angluar acceleration (rad/(s^2))
       // tau_est: Estimated external torque
 
-      for (int i = 0; i < 12; i++) {
+      for (int i = 0; i < motor_count_; i++) {
         motor_[i] = data->motor_state[i];
         RCLCPP_INFO(this->get_logger(),
                     "Motor state -- num: %d; q: %f; dq: %f; ddq: %f; tau: %f",
@@ -106,7 +122,8 @@ class LowStateSuber : public rclcpp::Node {
   rclcpp::Subscription<unitree_go::msg::LowState>::SharedPtr suber_;
 
   unitree_go::msg::IMUState imu_;          // Unitree go2 IMU message
-  unitree_go::msg::MotorState motor_[12];  // Unitree go2 motor state message
+  unitree_go::msg::MotorState motor_[20];  // Unitree go2 motor state message
+  int motor_count_{12};                    // Motor slots used by the robot
   int16_t foot_force_[4]{};                // External contact force value (int)
   int16_t
       foot_force_est_[4]{};  // Estimated  external contact force value (int)
@@ -116,9 +133,15 @@ class LowStateSuber : public rclcpp::Node {
 
 int main(int argc, char *argv[]) {
   rclcpp::init(argc, argv);  // Initialize rclcpp
-  rclcpp::spin(
-      std::make_shared<LowStateSuber>());  // Run ROS2 node which is make
-                                           // share with low_state_suber class
+  int status = 0;
+  try {
+    rclcpp::spin(
+        std::make_shared<LowStateSuber>());  // Run ROS2 node which is make
+                                             // share with low_state_suber class
+  } catch (const std::exception &error) {
+    RCLCPP_FATAL(rclcpp::get_logger("read_low_state"), "%s", error.what());
+    status = 1;
+  }
   rclcpp::shutdown();
-  return 0;
+  return status;
 }

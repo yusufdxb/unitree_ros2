@@ -79,6 +79,134 @@ def test_telemetry_examples(executable, type_name, topic, marker, publisher_qos,
         assert fields(deserialize_message(data, cls)) == fields(message)
 
 
+def run_subscriber(executable, arguments, publications, tmp_path, until=None):
+    """Start a subscriber example on private topics, publish, stop it with SIGINT.
+
+    publications maps a private topic to (message, qos). until is a callable on the
+    running ROS node that must become true before publishing (default: matched).
+    Returns (returncode, log text, value returned by until).
+    """
+    prefix = Path(get_package_prefix('unitree_ros2_example'))
+    args = [str(prefix / 'lib/unitree_ros2_example' / executable), '--ros-args'] + arguments
+    rclpy.init()
+    node = rclpy.create_node('example_models_' + executable)
+    publishers = [(node.create_publisher(type(message), topic, qos), message)
+                  for topic, (message, qos) in publications.items()]
+    logfile = tmp_path / (executable + '.log')
+    observed = None
+    with logfile.open('w') as output:
+        process = subprocess.Popen(args, stdout=output, stderr=subprocess.STDOUT)
+        try:
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline and process.poll() is None:
+                if all(p.get_subscription_count() for p, _ in publishers):
+                    observed = until(node) if until else True
+                    if observed:
+                        break
+                rclpy.spin_once(node, timeout_sec=0.05)
+            if process.poll() is None:
+                assert observed, logfile.read_text()
+                for _ in range(5):
+                    for publisher, message in publishers:
+                        publisher.publish(message)
+                    rclpy.spin_once(node, timeout_sec=0.05)
+                process.send_signal(signal.SIGINT)
+            process.wait(timeout=5)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            node.destroy_node()
+            rclpy.shutdown()
+    return process.returncode, logfile.read_text(), observed
+
+
+@pytest.mark.parametrize('executable,robot,motors', [
+    ('read_low_state', 'go2', 12),
+    ('read_low_state', 'go2w', 16),
+    ('read_low_state', 'b2', 12),
+    ('read_low_state', 'b2w', 16),
+    ('read_low_state', 'h1', 20),
+    ('read_low_state_hg', 'g1', 29),
+    ('read_low_state_hg', 'h1_2', 27),
+    ('read_low_state_hg', 'h2', 31),
+    ('read_low_state_hg', 'r1', 26),
+])
+def test_low_state_readers_report_each_models_motor_slots(executable, robot, motors, tmp_path):
+    family = 'unitree_hg' if executable.endswith('_hg') else 'unitree_go'
+    message = populate(get_message(family + '/msg/LowState')())
+    topic = '/unitree_test/models/' + robot
+    code, log, _ = run_subscriber(
+        executable, ['-p', 'robot:=' + robot, '-r', 'lowstate:=' + topic],
+        {topic: (message, qos_profile_sensor_data)}, tmp_path)
+    assert code == 0, log
+    assert 'Motor state -- num: {};'.format(motors - 1) in log, log
+    assert 'Motor state -- num: {};'.format(motors) not in log, log
+    if family == 'unitree_hg':
+        assert 'mode_machine: {}'.format(message.mode_machine) in log, log
+
+
+@pytest.mark.parametrize('executable,robot', [
+    ('read_low_state', 'g1'),
+    ('read_low_state', 'unknown'),
+    ('read_low_state_hg', 'go2'),
+    ('read_low_state_hg', 'h1'),
+    ('read_low_state_hg', 'G1'),
+])
+def test_low_state_readers_reject_other_families_and_unknown_models(executable, robot, tmp_path):
+    code, log, _ = run_subscriber(executable, ['-p', 'robot:=' + robot], {}, tmp_path,
+                                  until=lambda node: False)
+    assert code == 1, log
+    assert 'does not publish' in log, log
+    assert 'Motor state' not in log, log
+
+
+def test_hg_reader_reads_secondary_imu_on_request(tmp_path):
+    imu = populate(get_message('unitree_hg/msg/IMUState')())
+    topic = '/unitree_test/models/secondary_imu'
+    code, log, _ = run_subscriber(
+        'read_low_state_hg', ['-p', 'secondary_imu:=true', '-r', 'secondary_imu:=' + topic],
+        {topic: (imu, qos_profile_sensor_data)}, tmp_path)
+    assert code == 0, log
+    assert 'Secondary IMU -- roll: {:f}'.format(imu.rpy[0]) in log, log
+
+
+@pytest.mark.parametrize('executable,arguments,subscribed', [
+    ('read_low_state', ['-p', 'robot:=b2'], {'lowstate'}),
+    ('read_low_state_hg', ['-p', 'robot:=h2', '-p', 'secondary_imu:=true'],
+     {'lowstate', 'secondary_imu'}),
+    ('read_motion_state', [], {'lf/sportmodestate'}),
+    ('read_wireless_controller', [], {'wirelesscontroller'}),
+])
+def test_telemetry_examples_are_subscriber_only(executable, arguments, subscribed, tmp_path):
+    # Robot topics are remapped away; the graph is inspected before anything is sent.
+    name = 'endpoint_probe_' + executable
+    remaps = []
+    for topic in sorted(subscribed):
+        remaps += ['-r', topic + ':=/unitree_test/endpoints/' + topic]
+    expected = {'/unitree_test/endpoints/' + topic for topic in subscribed}
+
+    def endpoints(node):
+        if name not in node.get_node_names():
+            return None
+        # Every rclcpp node also follows /parameter_events.
+        topics = {t for t, _ in node.get_subscriber_names_and_types_by_node(name, '/')}
+        if topics - {'/parameter_events'} != expected:
+            return None
+        return (topics,
+                {t for t, _ in node.get_publisher_names_and_types_by_node(name, '/')},
+                node.get_client_names_and_types_by_node(name, '/'))
+
+    code, log, observed = run_subscriber(
+        executable, arguments + remaps + ['-r', '__node:=' + name], {}, tmp_path,
+        until=endpoints)
+    assert code == 0, log
+    assert observed, log
+    _, publishers, clients = observed
+    assert publishers <= {'/rosout', '/parameter_events'}, publishers
+    assert not clients, clients
+
+
 EXPECTED_EXAMPLES = 24
 
 
