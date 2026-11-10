@@ -6,6 +6,8 @@ application uses `rmw_cyclonedds_cpp` and native DDS topics to communicate with
 Unitree firmware. No Humble installation, bridge or SDK wrapper is required.
 The message definitions and Unitree request/response protocol are unchanged.
 This repository defines messages; it currently defines no ROS services or actions.
+Which robot uses which family, and what has been validated per robot, is in
+[Unitree robot models](robots.md).
 
 ## Install and build
 
@@ -253,6 +255,8 @@ discovery traffic on the domain.
 | Existing examples and clients | Build all targets; start subscriber examples | Motion and mode-changing examples are not executed |
 | ROS publisher/subscriber transport | Isolated Cyclone DDS tests | ROS-level communication on loopback |
 | Native DDS and API envelopes | Plain DDS peer generated from official IDL | Software peer interoperability, not a robot |
+| `unitree_go` and `unitree_hg` against SDK2 | Peer built from `unitree_sdk2`'s own generated types and bundled Cyclone DDS 0.10.2 (`scripts/test_sdk2_peer.sh`) | Field-level software interoperability, not a robot |
+| Robot model selection | Subscriber examples per model; subscriber-only endpoint checks | Motor counts from official SDK examples; see [robot models](robots.md) |
 | External ROS bags | Explicitly supplied offline Unitree recordings | Dataset-specific field checks and recorded schema incompatibilities |
 | Jazzy x86_64 | Native Ubuntu 24.04 CI job | Hosted runners only; no robot deployment is tested |
 | Jazzy ARM64 | Native `ubuntu-24.04-arm` CI job | No emulation; no ARM robot deployment is tested |
@@ -262,7 +266,8 @@ discovery traffic on the domain.
 The [native ROS 2 workflow](../.github/workflows/native-ros2.yml) resolves
 per-distribution dependencies with rosdep, builds interfaces and examples, gates
 the functional regression package, verifies all 24 installed examples and checks
-for foreign ROS underlays in CMake caches. It also runs the existing package lint
+for foreign ROS underlays in CMake caches. On every job it also exchanges both
+message families with a peer built from a pinned `unitree_sdk2` revision. It also runs the existing package lint
 checks in a separate, nonblocking step and uploads their logs and JUnit artifacts
 even when checks fail.
 The workflow runs for pull requests, pushes to `master`, and manual dispatch.

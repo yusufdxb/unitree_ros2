@@ -6,6 +6,8 @@ For Ubuntu 24.04 and ROS 2 Jazzy, follow the
 [native Jazzy installation and validation guide](docs/jazzy.md).
 Jazzy uses the distribution's packaged Cyclone DDS and matching RMW; the
 legacy source-DDS instructions below are not required for Jazzy.
+The [robot model guide](docs/robots.md) lists which message family each robot
+uses, the safe telemetry examples, and what is and is not validated.
 
 
 # Introduction
@@ -142,8 +144,8 @@ The source code of examples locates at `/example/src/src`.
 - g1/lowlevel/g1_low_level_example: Low level control for G1
 - h1-2/lowlevel/low_level_ctrl_hg: Low level control for H1-2
 - low_level_ctrl: Low level control for Go2/B2
-- read_low_state: Read the low state from Go2/B2
-- read_low_state_hg: Read the low state from G1/H1/H1-2
+- read_low_state: Read the low state from Go2/Go2-W/B2/B2-W/H1 (`unitree_go`; select with `-p robot:=`)
+- read_low_state_hg: Read the low state from G1/H1-2/H2/R1 (`unitree_hg`; select with `-p robot:=`)
 - read_motion_state: Read the sport mode state from Go2/B2
 - read_ wireless_controller: Read the state of wireless controller from G1/Go2/B2
 - record_bag: Ros bag recording example.
