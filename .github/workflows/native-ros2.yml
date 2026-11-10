@@ -87,6 +87,14 @@ jobs:
           scripts/test_cyclone_0102.sh "$RUNNER_TEMP/unitree-cyclone-0102" \
             2>&1 | tee artifacts/cyclone-0102.log
           cp "$RUNNER_TEMP/unitree-cyclone-0102/native-dds-0102.xml" artifacts/
+      - name: Test unitree_sdk2 generated types and bundled DDS peer
+        run: |
+          set -eo pipefail
+          source /opt/ros/${{ matrix.ros }}/setup.bash
+          source install/local_setup.bash
+          scripts/test_sdk2_peer.sh "$RUNNER_TEMP/unitree-sdk2-peer" \
+            2>&1 | tee artifacts/sdk2-peer.log
+          cp "$RUNNER_TEMP/unitree-sdk2-peer/sdk2-peer.xml" artifacts/
       - name: Gate functional tests on loopback only
         run: |
           set -eo pipefail

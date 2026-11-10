@@ -13,7 +13,7 @@ def isolated_communication(request):
                      'test_api_deadline.py',
                      'test_legacy_sport_client.py', 'test_api_burst.py',
                      'test_response_shape.py', 'test_api_single_flight.py',
-                     'test_request_qos.py'}
+                     'test_request_qos.py', 'test_sdk2_peer.py'}
     if not any(os.path.basename(item.location[0]) in communicating
                for item in request.session.items):
         return
