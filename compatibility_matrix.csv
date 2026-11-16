@@ -1,0 +1,9 @@
+robot,message_family,mujoco,isaac_sim,gazebo,native_jazzy_dds,joint_motion,result,notes
+GO2,unitree_go,PASS,PASS,PASS,PASS,PASS,PASS,"MuJoCo 2026-11-12 (motion test corrected 6/6); Isaac 3/3 + stand 0.34 m + 10-min soak; Gazebo 3/3 + 10-min soak"
+GO2-W,unitree_go,PASS,PASS,PARTIAL,PASS,PASS,PASS,"Gazebo: joints track but the base rolls 5.2 m in 28 s on free wheels (Gazebo wheel/contact model); Isaac stand uses go2_stand_example (no go2w example)"
+B2,unitree_go,PASS,PASS,PASS,PASS,PASS,PASS,"Gazebo PASS only with kp 3000/kd 60 (controller gain tuning, Gazebo-side)"
+B2-W,unitree_go,PASS,PASS,PASS,PASS,PASS,PASS,"Isaac stand PASS after motor torque limits were applied (simulator setup fix, not PR)"
+H1,unitree_go,PASS,PASS,PASS,PASS,PASS,PASS,"Gantry fixture in Isaac and Gazebo; Isaac and Gazebo 10-min soaks PASS"
+G1,unitree_hg,PASS,PASS,PARTIAL,PASS,PASS,PASS,"Gazebo: ankle roll L/R move 0.03 of 0.21 rad and wrists track loosely (Gazebo joint controller; cause not isolated); Isaac 29/29 + 10-min soak"
+H1-2,unitree_hg,PASS,PASS,PARTIAL,PASS,PASS,PASS,"Gazebo: ankle roll and wrist yaw L/R do not move (same Gazebo controller issue as G1); Isaac 27/27"
+H2,unitree_hg,PARTIAL,PASS,PASS,PASS,PASS,PARTIAL,"MuJoCo PARTIAL: PR's h2_ankle_swing_example publishes on ROS name rt/lowcmd and drives nothing (pre-existing upstream bug since 6b3ddb6, not in the PR diff); telemetry and LowCmd path PASS in all three simulators"

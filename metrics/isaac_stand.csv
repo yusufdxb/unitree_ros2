@@ -1,0 +1,5 @@
+robot,example,settled_z_m,peak_z_m,peak_t_s,max_abs_pitch_deg,end_z_m
+go2,go2_stand_example,0.076,0.343,4.095,6.0,0.076
+go2w,go2_stand_example (no go2w example),0.076,0.393,4.055,9.3,0.077
+b2,b2_stand_example,0.075,0.585,7.875,4.9,0.098
+b2w,b2w_stand_example,0.075,0.663,4.8,26.9,0.117
