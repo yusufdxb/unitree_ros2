@@ -48,6 +48,14 @@ PUBLISHER_TYPE = re.compile(r'rclcpp::Publisher<([\w:]+)')
 # the telemetry examples leave disabled.
 STATISTICS_PUBLISHER = 'statistics_msgs::msg::MetricsMessage_'
 GUARD_SECONDS = 5
+_DIAG_T0 = time.monotonic()
+
+
+def _diag(label):
+    path = os.environ.get('PREFLIGHT_DIAG_LOG')
+    if path:
+        with open(path, 'a') as f:
+            f.write('%d %s %.3f\n' % (os.getpid(), label, time.monotonic() - _DIAG_T0))
 # Exit status of a baseline comparison whose only failure is withdrawn writers.
 WITHDRAWN_ONLY = 3
 COUNT_CHECK = 'no unacknowledged non-ROS writer on a command topic'
@@ -121,9 +129,12 @@ def check_binaries(report, examples):
         if binary.is_symlink() or not binary.is_file():
             ok &= report.check(name + ' is an installed file', False, binary)
             continue
+        _diag('sha_start ' + name)
         report.data['binaries'][name] = hashlib.sha256(binary.read_bytes()).hexdigest()
+        _diag('nm_start ' + name)
         symbols = subprocess.run(['nm', '-DC', str(binary)], capture_output=True, text=True,
                                  check=True, timeout=10).stdout
+        _diag('nm_done ' + name)
         imported = sorted({package + '/msg/' + message
                            for package, message in IMPORTED_TYPE.findall(symbols)})
         ok &= report.check(name + ' imports only its telemetry type',
@@ -200,8 +211,10 @@ def observe_graph(report, args, examples, acknowledged, baseline):
         def create_publisher(self, *_args, **_kwargs):
             return InertPublisher()
 
+    _diag('rclpy_imported')
     context = Context()
     rclpy.init(args=[], context=context)
+    _diag('rclpy_init_done')
     node = None
     try:
         name = 'go2_telemetry_preflight_%d_%s' % (os.getpid(), secrets.token_hex(4))
@@ -225,6 +238,7 @@ def observe_graph(report, args, examples, acknowledged, baseline):
         telemetry_deadline = started + args.timeout
         monitor_deadline = started + args.monitor
         settled_at = None
+        _diag('node_ready')
         while True:
             now = time.monotonic()
             for topic, types in node.get_topic_names_and_types():
@@ -369,13 +383,16 @@ def main():
     signal.alarm(int(max(args.timeout + args.settle, args.monitor + args.settle)) +
                  GUARD_SECONDS)
 
+    _diag('main_args %s' % ' '.join(sys.argv[1:]))
     report = Report()
     try:
         # DDS starts only after every local precondition has passed.
         if (check_examples(report, args.examples) and
                 check_environment(report, args) and
                 check_binaries(report, args.examples)):
+            _diag('observe_start')
             observe_graph(report, args, args.examples, acknowledged, baseline)
+            _diag('observe_done')
     except Exception as error:  # An unexpected condition is not a pass.
         report.check('completed without error', False, repr(error))
     result = 'PASS' if report.passed() else 'FAIL'

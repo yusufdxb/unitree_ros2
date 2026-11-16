@@ -38,6 +38,7 @@ jobs:
         <Discovery><ParticipantIndex>auto</ParticipantIndex><Peers><Peer Address="127.0.0.1"/></Peers></Discovery>
         </Domain></CycloneDDS>
       CMAKE_BUILD_PARALLEL_LEVEL: '2'
+      PREFLIGHT_DIAG_LOG: /tmp/preflight-diag.log
     defaults:
       run:
         shell: bash
@@ -106,6 +107,9 @@ jobs:
             artifacts/api-latency.xml 2>&1 | tee artifacts/api-latency.log || rc=$?
           if [ "$rc" -eq 3 ]; then echo 'tc netem unavailable on this runner; skipped'; exit 0; fi
           exit "$rc"
+      - name: Copy preflight diagnostic timing
+        if: always()
+        run: cp /tmp/preflight-diag.log artifacts/ || true
       - name: Report functional results
         if: always()
         run: |
